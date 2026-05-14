@@ -1,0 +1,43 @@
+# Local research clones — kept out of git, local reference only
+research/
+
+# Node / Bun
+node_modules/
+.next/
+dist/
+build/
+*.log
+.turbo/
+.vercel/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.uv/
+uv.lock
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+*.swp
+
+# Render output
+*.mp4
+*.webm
+*.mov
+out/
+renders/
+tmp/
+.cache/
