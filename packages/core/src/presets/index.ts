@@ -81,9 +81,222 @@ export const TIKTOK_HOOK: Preset = {
   },
 };
 
-/** Preset registry. Phase 2 fills in the remaining 9 from PLAN §5.2. */
+// ---------------------------------------------------------------------------
+// Additional palettes + font pairs for the wider preset library
+// ---------------------------------------------------------------------------
+
+const STUDIO_DARK: Palette = {
+  name: "studioDark",
+  bg: "#0e1116",
+  fg: "#f3f5f9",
+  accent: "#3ddcff",
+  muted: "#7f8a9b",
+};
+
+const TEMPLE_GOLD: Palette = {
+  name: "templeGold",
+  bg: "#1b0f06",
+  fg: "#fff5dd",
+  accent: "#f7c34a",
+  muted: "#9c7a45",
+};
+
+const PRODUCT_LIGHT: Palette = {
+  name: "productLight",
+  bg: "#fafafa",
+  fg: "#0c0d10",
+  accent: "#1452ff",
+  muted: "#9ba1ad",
+};
+
+const ESSAY_PAPER: Palette = {
+  name: "essayPaper",
+  bg: "#f4eee2",
+  fg: "#1a1814",
+  accent: "#a83a2c",
+  muted: "#7a6a5a",
+};
+
+const POPPINS_INTER: FontPair = { display: "Poppins", body: "Inter" };
+const PLAYFAIR_INTER: FontPair = { display: "Playfair Display", body: "Inter" };
+const NOTO_DEVANAGARI: FontPair = { display: "Noto Sans Devanagari", body: "Inter" };
+const OSWALD_INTER: FontPair = { display: "Oswald", body: "Inter" };
+
+// ---------------------------------------------------------------------------
+// Presets
+// ---------------------------------------------------------------------------
+
+export const YOUTUBE_SHORT: Preset = {
+  id: "youtube-short",
+  label: "YouTube Short (9:16, up to 60s)",
+  canvas: { width: 1080, height: 1920, fps: 30 },
+  palette: STUDIO_DARK,
+  fontPair: POPPINS_INTER,
+  skeleton: [
+    { id: "hook", durRange: [2, 4], blocks: ["HookTitle", "KineticHeadline"] },
+    { id: "body", durRange: [20, 50], blocks: ["CaptionBlock", "KenBurnsImage", "BRollWindow"] },
+    { id: "cta", durRange: [3, 6], blocks: ["EndCard", "LogoBug"] },
+  ],
+  guardrails: {
+    maxDuration: 60,
+    minDuration: 15,
+    requireCaptions: true,
+    requireCta: true,
+    lufsTarget: -14,
+    titleSafe: [0.08, 0.92],
+  },
+};
+
+export const YOUTUBE_ESSAY: Preset = {
+  id: "youtube-essay",
+  label: "YouTube essay (16:9, 3–10 min)",
+  canvas: { width: 1920, height: 1080, fps: 30 },
+  palette: ESSAY_PAPER,
+  fontPair: PLAYFAIR_INTER,
+  skeleton: [
+    { id: "intro", durRange: [4, 10], blocks: ["HookTitle", "QuoteCard"] },
+    { id: "body", durRange: [120, 540], blocks: ["KenBurnsImage", "BRollWindow", "LowerThird", "CaptionBlock"] },
+    { id: "outro", durRange: [6, 14], blocks: ["EndCard", "QuoteCard"] },
+  ],
+  guardrails: {
+    maxDuration: 720,
+    minDuration: 120,
+    requireCaptions: false,
+    requireCta: true,
+    lufsTarget: -16,
+    titleSafe: [0.05, 0.95],
+  },
+};
+
+export const DEVOTIONAL_REEL: Preset = {
+  id: "devotional-reel",
+  label: "Devotional reel (9:16, scripture + ambient)",
+  canvas: { width: 1080, height: 1920, fps: 30 },
+  palette: TEMPLE_GOLD,
+  fontPair: NOTO_DEVANAGARI,
+  skeleton: [
+    { id: "open", durRange: [2, 4], blocks: ["HookTitle"] },
+    { id: "verse", durRange: [10, 30], blocks: ["QuoteCard", "KenBurnsImage"] },
+    { id: "cta", durRange: [3, 6], blocks: ["EndCard", "LogoBug"] },
+  ],
+  guardrails: {
+    maxDuration: 60,
+    minDuration: 15,
+    requireCaptions: true,
+    requireCta: true,
+    lufsTarget: -14,
+    titleSafe: [0.08, 0.92],
+  },
+};
+
+export const PRODUCT_PROMO: Preset = {
+  id: "product-promo",
+  label: "Product promo (16:9, 20–45s)",
+  canvas: { width: 1920, height: 1080, fps: 30 },
+  palette: PRODUCT_LIGHT,
+  fontPair: POPPINS_INTER,
+  skeleton: [
+    { id: "hook", durRange: [2, 4], blocks: ["HookTitle"] },
+    { id: "feature", durRange: [10, 26], blocks: ["KenBurnsImage", "BRollWindow", "CaptionBlock"] },
+    { id: "cta", durRange: [3, 6], blocks: ["EndCard", "LogoBug"] },
+  ],
+  guardrails: {
+    maxDuration: 45,
+    minDuration: 15,
+    requireCaptions: true,
+    requireCta: true,
+    lufsTarget: -14,
+    titleSafe: [0.06, 0.94],
+  },
+};
+
+export const PODCAST_CLIP: Preset = {
+  id: "podcast-clip",
+  label: "Podcast clip (9:16, 30–90s, captions over speaker)",
+  canvas: { width: 1080, height: 1920, fps: 30 },
+  palette: STUDIO_DARK,
+  fontPair: OSWALD_INTER,
+  skeleton: [
+    { id: "open", durRange: [2, 4], blocks: ["HookTitle", "LowerThird"] },
+    { id: "body", durRange: [20, 80], blocks: ["BRollWindow", "CaptionBlock", "LowerThird"] },
+    { id: "cta", durRange: [3, 6], blocks: ["EndCard", "LogoBug"] },
+  ],
+  guardrails: {
+    maxDuration: 90,
+    minDuration: 30,
+    requireCaptions: true,
+    requireCta: true,
+    lufsTarget: -14,
+    titleSafe: [0.08, 0.92],
+  },
+};
+
+export const EDUCATIONAL_EXPLAINER: Preset = {
+  id: "educational-explainer",
+  label: "Educational explainer (16:9, 60–180s)",
+  canvas: { width: 1920, height: 1080, fps: 30 },
+  palette: ESSAY_PAPER,
+  fontPair: POPPINS_INTER,
+  skeleton: [
+    { id: "intro", durRange: [3, 8], blocks: ["HookTitle"] },
+    { id: "body", durRange: [50, 160], blocks: ["KenBurnsImage", "QuoteCard", "CaptionBlock", "LowerThird"] },
+    { id: "summary", durRange: [4, 12], blocks: ["EndCard"] },
+  ],
+  guardrails: {
+    maxDuration: 180,
+    minDuration: 60,
+    requireCaptions: true,
+    requireCta: true,
+    lufsTarget: -16,
+    titleSafe: [0.06, 0.94],
+  },
+};
+
+export const BLANK_VERTICAL: Preset = {
+  id: "blank-vertical",
+  label: "Blank (9:16)",
+  canvas: { width: 1080, height: 1920, fps: 30 },
+  palette: NEON_NIGHT,
+  fontPair: ARCHIVO_INTER,
+  skeleton: [{ id: "main", durRange: [1, 600], blocks: ["HookTitle"] }],
+  guardrails: {
+    maxDuration: 600,
+    minDuration: 1,
+    requireCaptions: false,
+    requireCta: false,
+    lufsTarget: -14,
+    titleSafe: [0.05, 0.95],
+  },
+};
+
+export const BLANK_HORIZONTAL: Preset = {
+  id: "blank-horizontal",
+  label: "Blank (16:9)",
+  canvas: { width: 1920, height: 1080, fps: 30 },
+  palette: STUDIO_DARK,
+  fontPair: ARCHIVO_INTER,
+  skeleton: [{ id: "main", durRange: [1, 600], blocks: ["HookTitle"] }],
+  guardrails: {
+    maxDuration: 600,
+    minDuration: 1,
+    requireCaptions: false,
+    requireCta: false,
+    lufsTarget: -16,
+    titleSafe: [0.05, 0.95],
+  },
+};
+
+/** Full preset registry. */
 export const PRESETS: Record<string, Preset> = {
   [TIKTOK_HOOK.id]: TIKTOK_HOOK,
+  [YOUTUBE_SHORT.id]: YOUTUBE_SHORT,
+  [YOUTUBE_ESSAY.id]: YOUTUBE_ESSAY,
+  [DEVOTIONAL_REEL.id]: DEVOTIONAL_REEL,
+  [PRODUCT_PROMO.id]: PRODUCT_PROMO,
+  [PODCAST_CLIP.id]: PODCAST_CLIP,
+  [EDUCATIONAL_EXPLAINER.id]: EDUCATIONAL_EXPLAINER,
+  [BLANK_VERTICAL.id]: BLANK_VERTICAL,
+  [BLANK_HORIZONTAL.id]: BLANK_HORIZONTAL,
 };
 
 export function getPreset(id: string): Preset {

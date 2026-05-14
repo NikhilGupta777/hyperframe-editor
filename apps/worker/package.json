@@ -10,11 +10,20 @@
     "start": "node ./dist/index.js",
     "dev": "tsx watch src/index.ts",
     "smoke": "tsx scripts/smoke.ts",
+    "smoke:gates": "tsx scripts/smoke-gates.ts",
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
     "@hyperframe-editor/compose": "workspace:*",
     "@hyperframe-editor/core": "workspace:*",
+    "@hyperframe-editor/db": "workspace:*",
+    "@hyperframe-editor/ffmpeg": "workspace:*",
+    "@hyperframe-editor/providers": "workspace:*",
+    "@hyperframe-editor/queue": "workspace:*",
+    "@hyperframe-editor/storage": "workspace:*",
+    "drizzle-orm": "^0.36.4",
+    "execa": "^9.5.2",
+    "linkedom": "^0.18.12",
     "zod": "^3.24.1"
   },
   "devDependencies": {
