@@ -16,6 +16,8 @@
     "smoke:budget": "tsx scripts/smoke-budget.ts",
     "smoke:tools": "tsx scripts/smoke-tools.ts",
     "smoke:failure": "tsx scripts/smoke-failure.ts",
+    "smoke:autofix": "tsx scripts/smoke-autofix.ts",
+    "smoke:dryrun": "tsx scripts/smoke-dryrun.ts",
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
