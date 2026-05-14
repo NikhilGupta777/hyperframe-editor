@@ -11,6 +11,8 @@
     "dev": "tsx watch src/index.ts",
     "smoke": "tsx scripts/smoke.ts",
     "smoke:gates": "tsx scripts/smoke-gates.ts",
+    "smoke:tweak": "tsx scripts/smoke-tweak.ts",
+    "smoke:edit-source": "tsx scripts/smoke-edit-source.ts",
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {

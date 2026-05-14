@@ -16,6 +16,7 @@ import { logoBug, type LogoBugProps } from "./LogoBug.js";
 import { kenBurnsImage, type KenBurnsImageProps } from "./KenBurnsImage.js";
 import { bRollWindow, type BRollWindowProps } from "./BRollWindow.js";
 import { quoteCard, type QuoteCardProps } from "./QuoteCard.js";
+import { splitScreen, type SplitScreenProps } from "./SplitScreen.js";
 
 export type BlockFragment = {
   /** Inline HTML to insert inside the composition root. */
@@ -38,6 +39,7 @@ export const BLOCKS = {
   KenBurnsImage: kenBurnsImage as BlockRenderer<KenBurnsImageProps>,
   BRollWindow: bRollWindow as BlockRenderer<BRollWindowProps>,
   QuoteCard: quoteCard as BlockRenderer<QuoteCardProps>,
+  SplitScreen: splitScreen as BlockRenderer<SplitScreenProps>,
 } as const;
 
 export type BlockName = keyof typeof BLOCKS;
@@ -51,3 +53,4 @@ export { logoBug, type LogoBugProps } from "./LogoBug.js";
 export { kenBurnsImage, type KenBurnsImageProps } from "./KenBurnsImage.js";
 export { bRollWindow, type BRollWindowProps } from "./BRollWindow.js";
 export { quoteCard, type QuoteCardProps } from "./QuoteCard.js";
+export { splitScreen, type SplitScreenProps } from "./SplitScreen.js";

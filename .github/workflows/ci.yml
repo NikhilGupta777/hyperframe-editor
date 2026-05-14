@@ -23,3 +23,5 @@ jobs:
       - run: pnpm -r --filter '@hyperframe-editor/*' build
       - run: pnpm --filter @hyperframe-editor/worker smoke
       - run: pnpm --filter @hyperframe-editor/worker smoke:gates
+      - run: pnpm --filter @hyperframe-editor/worker smoke:tweak
+      - run: pnpm --filter @hyperframe-editor/worker smoke:edit-source

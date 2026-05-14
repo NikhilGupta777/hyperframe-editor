@@ -14,6 +14,7 @@
   "dependencies": {
     "@hyperframe-editor/core": "workspace:*",
     "@hyperframe-editor/db": "workspace:*",
+    "@hyperframe-editor/providers": "workspace:*",
     "@hyperframe-editor/queue": "workspace:*",
     "@hyperframe-editor/storage": "workspace:*",
     "next": "^15.1.4",

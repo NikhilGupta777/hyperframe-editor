@@ -158,7 +158,24 @@ export function eventChannel(jobId: string): string {
   return `jobs:${jobId}:events`;
 }
 
+/**
+ * Hook for smoke tests / harnesses: when set, every event also goes here.
+ * The runtime cost is one indirect call. Always cleared in production by
+ * leaving it undefined.
+ */
+export let onAnyEvent: ((jobId: string, e: JobEvent) => void) | null = null;
+
+export function setEventTap(fn: ((jobId: string, e: JobEvent) => void) | null): void {
+  onAnyEvent = fn;
+}
+
 export async function publishEvent(jobId: string, evt: JobEvent): Promise<void> {
+  if (onAnyEvent) onAnyEvent(jobId, evt);
+  if (!process.env.REDIS_URL) {
+    // No-op when Redis isn't configured. Smoke scripts and unit tests rely on
+    // this so the orchestrator can run without infrastructure.
+    return;
+  }
   await getRedis().publish(eventChannel(jobId), JSON.stringify(evt));
 }
 

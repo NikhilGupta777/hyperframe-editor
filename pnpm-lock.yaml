@@ -26,6 +26,9 @@ importers:
       '@hyperframe-editor/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@hyperframe-editor/providers':
+        specifier: workspace:*
+        version: link:../../packages/providers
       '@hyperframe-editor/queue':
         specifier: workspace:*
         version: link:../../packages/queue
