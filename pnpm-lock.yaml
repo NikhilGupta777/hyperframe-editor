@@ -20,6 +20,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@hyperframe-editor/compose':
+        specifier: workspace:*
+        version: link:../../packages/compose
       '@hyperframe-editor/core':
         specifier: workspace:*
         version: link:../../packages/core

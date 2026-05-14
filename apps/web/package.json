@@ -12,6 +12,7 @@
     "clean": "rm -rf .next dist .turbo"
   },
   "dependencies": {
+    "@hyperframe-editor/compose": "workspace:*",
     "@hyperframe-editor/core": "workspace:*",
     "@hyperframe-editor/db": "workspace:*",
     "@hyperframe-editor/providers": "workspace:*",

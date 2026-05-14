@@ -5,8 +5,10 @@ const nextConfig = {
   // builds, those packages are pre-built to dist/, but transpilePackages keeps the
   // workspace ergonomic on Vercel without forcing a build step before next build.
   transpilePackages: [
+    "@hyperframe-editor/compose",
     "@hyperframe-editor/core",
     "@hyperframe-editor/db",
+    "@hyperframe-editor/providers",
     "@hyperframe-editor/queue",
     "@hyperframe-editor/storage",
   ],

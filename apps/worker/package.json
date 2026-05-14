@@ -13,11 +13,14 @@
     "smoke:gates": "tsx scripts/smoke-gates.ts",
     "smoke:tweak": "tsx scripts/smoke-tweak.ts",
     "smoke:edit-source": "tsx scripts/smoke-edit-source.ts",
+    "smoke:edit-source-real": "tsx scripts/smoke-edit-source-real.ts",
     "smoke:budget": "tsx scripts/smoke-budget.ts",
     "smoke:tools": "tsx scripts/smoke-tools.ts",
     "smoke:failure": "tsx scripts/smoke-failure.ts",
     "smoke:autofix": "tsx scripts/smoke-autofix.ts",
     "smoke:dryrun": "tsx scripts/smoke-dryrun.ts",
+    "smoke:concat": "tsx scripts/smoke-concat.ts",
+    "smoke:composition": "tsx scripts/smoke-composition.ts",
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {

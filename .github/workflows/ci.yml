@@ -25,8 +25,11 @@ jobs:
       - run: pnpm --filter @hyperframe-editor/worker smoke:gates
       - run: pnpm --filter @hyperframe-editor/worker smoke:tweak
       - run: pnpm --filter @hyperframe-editor/worker smoke:edit-source
+      - run: pnpm --filter @hyperframe-editor/worker smoke:edit-source-real
       - run: pnpm --filter @hyperframe-editor/worker smoke:budget
       - run: pnpm --filter @hyperframe-editor/worker smoke:tools
       - run: pnpm --filter @hyperframe-editor/worker smoke:failure
       - run: pnpm --filter @hyperframe-editor/worker smoke:autofix
       - run: pnpm --filter @hyperframe-editor/worker smoke:dryrun
+      - run: pnpm --filter @hyperframe-editor/worker smoke:concat
+      - run: pnpm --filter @hyperframe-editor/worker smoke:composition

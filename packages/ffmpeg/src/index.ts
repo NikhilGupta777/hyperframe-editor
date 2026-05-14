@@ -300,3 +300,5 @@ export async function burnSubtitles(input: string, srtPath: string, output: stri
 export async function ensureFile(path: string): Promise<void> {
   await fs.access(resolve(path));
 }
+
+export { concatCuts, type ConcatCut, type ConcatOptions } from "./concat.js";

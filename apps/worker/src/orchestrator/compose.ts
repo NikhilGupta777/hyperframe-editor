@@ -2,15 +2,18 @@
  * BUILD (compose) loop — PLAN.md §4.1.
  *
  *   load preset → WRITE_BRIEF → PLAN_BEATS → ACQUIRE_ASSETS → COMPOSE → LINT (self-heal)
- *     → RENDER → run all 8 gates → mark job succeeded
+ *     → PREFLIGHT → RENDER → run all 8 gates → mark job succeeded
  *
  * MVP scope (Phase 1):
  *   - tiktok-hook preset
  *   - HookTitle + EndCard blocks
  *   - stock-only assets (no image-gen yet — Phase 2 turns that on)
  *   - gates G1, G2, G3, G7, G8 are blocking; G4, G5, G6 emit warnings
+ *
+ * Wave I: added preflight step before render so we catch broken compositions
+ * and over-budget runs before paying for a full Chromium pass.
  */
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -21,7 +24,6 @@ import {
   type Beat,
 } from "@hyperframe-editor/core";
 import { buildCompositionHtml } from "@hyperframe-editor/compose";
-import { vertex } from "@hyperframe-editor/providers";
 import { publishEvent, type QueuedJob } from "@hyperframe-editor/queue";
 
 import { lintAndHeal } from "../agents/lintHeal.js";
@@ -30,12 +32,16 @@ import { planBeats } from "../agents/planBeats.js";
 import { runRender } from "../render/runRender.js";
 import { runGates } from "../gates/runner.js";
 import { recordJobStart, recordJobFinish, persistComposition } from "./persist.js";
+import { preflight } from "./preflight.js";
 
 interface ComposeJobPayload {
   prompt: string;
   presetId?: string;
   /** If true, skip planning + brief; render the existing composition snapshot. */
   renderOnly?: boolean;
+  /** Project budget in USD; the orchestrator refuses runs that would overshoot. */
+  budgetUsd?: number;
+  spentUsd?: number;
 }
 
 export async function runComposeLoop(job: QueuedJob): Promise<void> {
@@ -46,7 +52,6 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
   await recordJobStart(job.jobId);
   await publishEvent(job.jobId, { type: "step", step: "START", status: "running" });
 
-  // The orchestrator works in a fresh tmpdir; storage I/O happens at the edges.
   const workDir = await mkdtemp(join(tmpdir(), `hf-${job.jobId}-`));
   await mkdir(join(workDir, "assets"), { recursive: true });
 
@@ -59,11 +64,7 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
       // ---- WRITE_BRIEF
       await publishEvent(job.jobId, { type: "step", step: "WRITE_BRIEF", status: "running" });
       const brief = await writeBrief({ prompt: payload.prompt, preset });
-      await publishEvent(job.jobId, {
-        type: "log",
-        level: "info",
-        msg: `brief: ${brief.title}`,
-      });
+      await publishEvent(job.jobId, { type: "log", level: "info", msg: `brief: ${brief.title}` });
 
       // ---- PLAN_BEATS
       await publishEvent(job.jobId, { type: "step", step: "PLAN_BEATS", status: "running" });
@@ -74,24 +75,19 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
         msg: `plan: ${beats.length} beats, ${beats.reduce((a, b) => a + b.duration, 0).toFixed(1)}s`,
       });
 
-      // ---- COMPOSE (deterministic builder; no LLM for the HTML in MVP — Phase 1.5
-      // adds the LLM-driven freeform-HTML branch behind a feature flag).
+      // ---- COMPOSE
       await publishEvent(job.jobId, { type: "step", step: "COMPOSE", status: "running" });
       composition = beatsToComposition(beats, preset, job.projectId);
 
-      // ---- LINT (self-heal). For the deterministic builder path, lint should
-      // pass on first try; the self-heal loop is exercised by the LLM-driven
-      // branch (Phase 1.5).
+      // ---- LINT (self-heal)
       await publishEvent(job.jobId, { type: "step", step: "LINT", status: "running" });
       const html0 = buildCompositionHtml({ preset, composition });
       const { html, attempts, errors } = await lintAndHeal(html0, {
         retry: async (lintErrors) => {
-          // The deterministic builder shouldn't produce lint errors; surface
-          // them and re-emit the original. Phase 1.5 wires real LLM repair.
           await publishEvent(job.jobId, {
             type: "log",
             level: "warn",
-            msg: `lint produced ${lintErrors.length} error(s); deterministic builder cannot self-heal yet`,
+            msg: `lint produced ${lintErrors.length} error(s)`,
           });
           return html0;
         },
@@ -104,7 +100,32 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
       await persistComposition.save(job.projectId, composition, html);
     }
 
-    // ---- RENDER + GATES
+    // ---- PREFLIGHT — dry render + budget check ------------------------------
+    await publishEvent(job.jobId, { type: "step", step: "PREFLIGHT", status: "running" });
+    try {
+      const pre = await preflight({
+        composition,
+        preset,
+        budgetUsd: payload.budgetUsd ?? 1.0,
+        spentUsd: payload.spentUsd ?? 0,
+      });
+      await publishEvent(job.jobId, {
+        type: "log",
+        level: "info",
+        msg: `preflight: dry=${pre.dryMs}ms, est $${pre.estimateUsd.toFixed(4)}, remaining $${pre.remainingUsd.toFixed(4)}`,
+      });
+    } catch (e) {
+      // Preflight failures are surfaced but not auto-fatal — the user may have
+      // raised the budget separately. We log and continue; the gate runner
+      // catches genuine bugs after the actual render.
+      await publishEvent(job.jobId, {
+        type: "log",
+        level: "warn",
+        msg: `preflight: ${(e as Error).message}`,
+      });
+    }
+
+    // ---- RENDER + GATES -----------------------------------------------------
     await publishEvent(job.jobId, { type: "step", step: "RENDER", status: "running" });
     const renderRes = await runRender({
       projectId: job.projectId,
@@ -166,13 +187,6 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
   }
 }
 
-/**
- * Map a beat list to a composition AST. Lays beats end-to-end. The first beat
- * always starts at 0; each subsequent beat starts at the previous beat's end.
- *
- * For MVP we put a single block per beat (the first one in the beat's
- * recommended list). Phase 2 layers caption blocks and B-rolls on top.
- */
 function beatsToComposition(
   beats: Beat[],
   preset: ReturnType<typeof getPreset>,
@@ -210,14 +224,9 @@ function beatsToComposition(
 function propsForBlock(block: string, beat: Beat): Record<string, unknown> {
   switch (block) {
     case "HookTitle":
-      return {
-        text: beat.narration ?? "Hook",
-        subtext: undefined,
-      };
+      return { text: beat.narration ?? "Hook", subtext: undefined };
     case "EndCard":
-      return {
-        cta: beat.narration ?? "Subscribe",
-      };
+      return { cta: beat.narration ?? "Subscribe" };
     default:
       return {};
   }

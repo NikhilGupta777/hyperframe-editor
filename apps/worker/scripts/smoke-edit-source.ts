@@ -84,20 +84,23 @@ for (const g of gateEvents) {
 }
 
 if (exitCode === 0) {
-  const expectedSteps = [
+  // Per-source steps now carry the source id (e.g. PROBE:src-0). We check
+  // that AT LEAST ONE step matches each expected stage prefix.
+  const expectedPrefixes = [
     "PROBE",
     "EXTRACT_AUDIO",
     "TRANSCRIBE",
     "PACK_SOURCES",
     "PROPOSE_EDL",
+    "CONCAT_CUTS",
     "COMPOSE_OVER_EDL",
     "LINT",
     "RENDER",
     "GATES",
   ];
-  for (const s of expectedSteps) {
-    if (!steps.includes(s)) {
-      console.error(`MISSING step: ${s}`);
+  for (const prefix of expectedPrefixes) {
+    if (!steps.some((s) => s === prefix || s.startsWith(prefix + ":"))) {
+      console.error(`MISSING step: ${prefix}`);
       exitCode = 1;
     }
   }
