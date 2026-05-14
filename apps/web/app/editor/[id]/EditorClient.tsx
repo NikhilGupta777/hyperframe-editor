@@ -1,17 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PRESETS, type Composition } from "@hyperframe-editor/core";
 import { AgentLog, type AgentEvent } from "@/components/editor/AgentLog";
 import { GateBadges } from "@/components/editor/GateBadges";
 import { Timeline } from "@/components/editor/Timeline";
+import { PropsPanel } from "@/components/editor/PropsPanel";
 import { RenderHistory } from "@/components/editor/RenderHistory";
 import { StockSearch } from "@/components/editor/StockSearch";
 
 /**
  * Editor client component. The route's server component awaits Next 15's
  * Promise<params> and forwards `id` here as a plain string so all the hooks
- * can run cleanly in client-land.
+ * can run cleanly in client land.
  */
 export function EditorClient({ id }: { id: string }) {
   const [prompt, setPrompt] = useState(
@@ -21,9 +22,9 @@ export function EditorClient({ id }: { id: string }) {
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [renderingJobId, setRenderingJobId] = useState<string | null>(null);
   const [doneUrl, setDoneUrl] = useState<string | null>(null);
-  const [composition] = useState<Composition | null>(null);
+  const [composition, setComposition] = useState<Composition | null>(null);
   const [selectedClip, setSelectedClip] = useState<string | null>(null);
-  const [tab, setTab] = useState<"chat" | "assets" | "history">("chat");
+  const [tab, setTab] = useState<"chat" | "assets" | "history" | "props">("chat");
   const previewRef = useRef<HTMLIFrameElement>(null);
 
   const presets = useMemo(() => Object.values(PRESETS), []);
@@ -42,6 +43,10 @@ export function EditorClient({ id }: { id: string }) {
         const data = JSON.parse(ev.data) as AgentEvent;
         setEvents((prev) => [...prev, data]);
         if (data.type === "done" && data.url) setDoneUrl(data.url);
+        if (data.type === "done") {
+          // Refresh composition snapshot after a successful render.
+          void loadComposition();
+        }
       } catch {
         /* ignore */
       }
@@ -50,6 +55,22 @@ export function EditorClient({ id }: { id: string }) {
     es.addEventListener("error", () => es.close());
     return () => es.close();
   }, [renderingJobId]);
+
+  const loadComposition = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/projects/${id}/composition.json`);
+      if (!r.ok) return;
+      const j = (await r.json()) as { composition?: Composition };
+      if (j.composition) setComposition(j.composition);
+    } catch {
+      // ignore
+    }
+  }, [id]);
+
+  // Pull composition AST + HTML preview on mount and after every done event.
+  useEffect(() => {
+    void loadComposition();
+  }, [loadComposition, doneUrl]);
 
   useEffect(() => {
     let alive = true;
@@ -67,6 +88,31 @@ export function EditorClient({ id }: { id: string }) {
       alive = false;
     };
   }, [id, doneUrl]);
+
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  function persistComposition(next: Composition) {
+    setComposition(next);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      void fetch(`/api/projects/${id}/composition.json`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ composition: next }),
+      });
+    }, 400);
+  }
+
+  async function deleteClip(clipId: string) {
+    if (!composition) return;
+    const next: Composition = JSON.parse(JSON.stringify(composition));
+    next.clips = next.clips.filter((c) => c.id !== clipId);
+    next.duration = next.clips.reduce(
+      (m, c) => Math.max(m, c.start + c.duration),
+      0,
+    );
+    persistComposition(next);
+    if (selectedClip === clipId) setSelectedClip(null);
+  }
 
   async function startRender() {
     setEvents([]);
@@ -122,7 +168,7 @@ export function EditorClient({ id }: { id: string }) {
         </div>
 
         <div className="flex border-b border-muted/30 text-xs">
-          {(["chat", "assets", "history"] as const).map((t) => (
+          {(["chat", "assets", "history", "props"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -135,10 +181,30 @@ export function EditorClient({ id }: { id: string }) {
           ))}
         </div>
 
-        <div className="flex-1 overflow-auto p-3">
-          {tab === "chat" && <AgentLog events={events} />}
-          {tab === "assets" && <StockSearch />}
-          {tab === "history" && <RenderHistory projectId={id} />}
+        <div className="flex-1 overflow-auto">
+          {tab === "chat" && (
+            <div className="p-3">
+              <AgentLog events={events} />
+            </div>
+          )}
+          {tab === "assets" && (
+            <div className="p-3">
+              <StockSearch />
+            </div>
+          )}
+          {tab === "history" && (
+            <div className="p-3">
+              <RenderHistory projectId={id} />
+            </div>
+          )}
+          {tab === "props" && (
+            <PropsPanel
+              composition={composition}
+              selectedId={selectedClip}
+              onChange={persistComposition}
+              onDelete={deleteClip}
+            />
+          )}
         </div>
       </section>
 
@@ -171,7 +237,11 @@ export function EditorClient({ id }: { id: string }) {
         <Timeline
           composition={composition}
           selectedId={selectedClip}
-          onSelect={setSelectedClip}
+          onSelect={(id) => {
+            setSelectedClip(id);
+            if (id) setTab("props");
+          }}
+          onMutate={persistComposition}
         />
       </section>
     </main>
