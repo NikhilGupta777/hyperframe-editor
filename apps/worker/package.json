@@ -14,6 +14,8 @@
     "smoke:tweak": "tsx scripts/smoke-tweak.ts",
     "smoke:edit-source": "tsx scripts/smoke-edit-source.ts",
     "smoke:budget": "tsx scripts/smoke-budget.ts",
+    "smoke:tools": "tsx scripts/smoke-tools.ts",
+    "smoke:failure": "tsx scripts/smoke-failure.ts",
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
