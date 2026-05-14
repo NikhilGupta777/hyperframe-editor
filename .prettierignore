@@ -1,0 +1,9 @@
+node_modules
+dist
+.next
+.turbo
+research
+pnpm-lock.yaml
+*.mp4
+*.webm
+*.mov

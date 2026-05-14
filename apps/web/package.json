@@ -1,0 +1,12 @@
+{
+  "name": "@hyperframe-editor/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "echo \"web app placeholder; see PLAN.md \u00a714 day 6\"",
+    "dev": "echo \"web app placeholder; see PLAN.md \u00a714 day 6\"",
+    "typecheck": "echo \"no-op\"",
+    "clean": "rm -rf .next dist .turbo"
+  }
+}
