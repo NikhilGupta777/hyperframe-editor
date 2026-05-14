@@ -41,14 +41,29 @@ const SCHEMA = {
 
 export async function planBeats(req: PlanRequest): Promise<Beat[]> {
   // Deterministic stub when Vertex isn't configured: sample one beat per slot
-  // at the slot's mid-duration.
+  // at the slot's mid-duration. Beats now also synthesise asset cues from the
+  // brief title so the offline path still exercises asset acquisition.
   if (!process.env.GOOGLE_CLOUD_PROJECT && !process.env.VERTEX_PROJECT) {
     return req.preset.skeleton.map<Beat>((slot, i) => ({
       id: slot.id,
-      narration: i === 0 ? req.brief.title : i === req.preset.skeleton.length - 1 ? "Subscribe" : req.brief.summary,
+      narration:
+        i === 0
+          ? req.brief.title
+          : i === req.preset.skeleton.length - 1
+            ? "Subscribe"
+            : req.brief.summary,
       duration: midOf(slot.durRange[0], slot.durRange[1]),
       blocks: slot.blocks.slice(0, 1),
-      assetCues: [],
+      assetCues:
+        i === 0 || i === req.preset.skeleton.length - 1
+          ? []
+          : [
+              {
+                slot: "background",
+                query: req.brief.title.split(/[.\n,]/)[0]?.trim() || "abstract",
+                kind: "image",
+              },
+            ],
     }));
   }
 

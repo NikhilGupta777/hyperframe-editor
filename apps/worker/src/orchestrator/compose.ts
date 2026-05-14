@@ -1,17 +1,19 @@
 /**
  * BUILD (compose) loop — PLAN.md §4.1.
  *
- *   load preset → WRITE_BRIEF → PLAN_BEATS → ACQUIRE_ASSETS → COMPOSE → LINT (self-heal)
+ *   load preset → WRITE_BRIEF → PLAN_BEATS → ACQUIRE_ASSETS → COMPOSE → LINT
  *     → PREFLIGHT → RENDER → run all 8 gates → mark job succeeded
  *
- * MVP scope (Phase 1):
- *   - tiktok-hook preset
- *   - HookTitle + EndCard blocks
- *   - stock-only assets (no image-gen yet — Phase 2 turns that on)
- *   - gates G1, G2, G3, G7, G8 are blocking; G4, G5, G6 emit warnings
- *
- * Wave I: added preflight step before render so we catch broken compositions
- * and over-budget runs before paying for a full Chromium pass.
+ * Wave K updates:
+ *   - ACQUIRE_ASSETS now actually runs. Per-beat asset cues are resolved via
+ *     packages/providers (Pixabay → Unsplash → Imagen 4 fast). Each fetched
+ *     asset is hashed, downloaded into the workDir's assets/ folder, and
+ *     stitched into the composition as a BRollWindow on track 1 sized to the
+ *     beat's window.
+ *   - When no keys are configured the loop still completes; ACQUIRE_ASSETS
+ *     simply finds nothing and the composition stays text-only.
+ *   - We always emit a `tool` SSE event per acquired asset so the chat panel
+ *     can show "fetched 3 images from Pixabay" style progress.
  */
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -22,6 +24,7 @@ import {
   computeDuration,
   getPreset,
   type Beat,
+  type AssetRef,
 } from "@hyperframe-editor/core";
 import { buildCompositionHtml } from "@hyperframe-editor/compose";
 import { publishEvent, type QueuedJob } from "@hyperframe-editor/queue";
@@ -29,6 +32,7 @@ import { publishEvent, type QueuedJob } from "@hyperframe-editor/queue";
 import { lintAndHeal } from "../agents/lintHeal.js";
 import { writeBrief } from "../agents/writeBrief.js";
 import { planBeats } from "../agents/planBeats.js";
+import { acquireAssets, type AcquiredAsset } from "../agents/acquireAssets.js";
 import { runRender } from "../render/runRender.js";
 import { runGates } from "../gates/runner.js";
 import { recordJobStart, recordJobFinish, persistComposition } from "./persist.js";
@@ -42,6 +46,8 @@ interface ComposeJobPayload {
   /** Project budget in USD; the orchestrator refuses runs that would overshoot. */
   budgetUsd?: number;
   spentUsd?: number;
+  /** When true, never call paid image-gen even if Vertex is configured. */
+  freeOnly?: boolean;
 }
 
 export async function runComposeLoop(job: QueuedJob): Promise<void> {
@@ -61,12 +67,16 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
     if (payload.renderOnly) {
       composition = await persistComposition.load(job.projectId);
     } else {
-      // ---- WRITE_BRIEF
+      // ---- WRITE_BRIEF ------------------------------------------------------
       await publishEvent(job.jobId, { type: "step", step: "WRITE_BRIEF", status: "running" });
       const brief = await writeBrief({ prompt: payload.prompt, preset });
-      await publishEvent(job.jobId, { type: "log", level: "info", msg: `brief: ${brief.title}` });
+      await publishEvent(job.jobId, {
+        type: "log",
+        level: "info",
+        msg: `brief: ${brief.title}`,
+      });
 
-      // ---- PLAN_BEATS
+      // ---- PLAN_BEATS -------------------------------------------------------
       await publishEvent(job.jobId, { type: "step", step: "PLAN_BEATS", status: "running" });
       const beats: Beat[] = await planBeats({ brief, preset });
       await publishEvent(job.jobId, {
@@ -75,11 +85,44 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
         msg: `plan: ${beats.length} beats, ${beats.reduce((a, b) => a + b.duration, 0).toFixed(1)}s`,
       });
 
-      // ---- COMPOSE
-      await publishEvent(job.jobId, { type: "step", step: "COMPOSE", status: "running" });
-      composition = beatsToComposition(beats, preset, job.projectId);
+      // ---- ACQUIRE_ASSETS ---------------------------------------------------
+      await publishEvent(job.jobId, {
+        type: "step",
+        step: "ACQUIRE_ASSETS",
+        status: "running",
+      });
+      const acquired = await acquireAssets({
+        beats,
+        workDir,
+        aspectRatio: preset.canvas.height >= preset.canvas.width ? "9:16" : "16:9",
+        freeOnly: payload.freeOnly,
+        publish: async (msg) =>
+          publishEvent(job.jobId, { type: "log", level: "info", msg }),
+      });
+      await publishEvent(job.jobId, {
+        type: "log",
+        level: "info",
+        msg: `acquired ${acquired.length} asset(s)`,
+      });
+      for (const a of acquired) {
+        await publishEvent(job.jobId, {
+          type: "tool",
+          name: "asset",
+          output: {
+            beatId: a.beatId,
+            slot: a.slot,
+            kind: a.asset.kind,
+            provider: a.asset.attribution?.provider,
+            src: a.asset.src,
+          },
+        });
+      }
 
-      // ---- LINT (self-heal)
+      // ---- COMPOSE ----------------------------------------------------------
+      await publishEvent(job.jobId, { type: "step", step: "COMPOSE", status: "running" });
+      composition = beatsToComposition(beats, preset, job.projectId, acquired);
+
+      // ---- LINT (self-heal) -------------------------------------------------
       await publishEvent(job.jobId, { type: "step", step: "LINT", status: "running" });
       const html0 = buildCompositionHtml({ preset, composition });
       const { html, attempts, errors } = await lintAndHeal(html0, {
@@ -100,7 +143,7 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
       await persistComposition.save(job.projectId, composition, html);
     }
 
-    // ---- PREFLIGHT — dry render + budget check ------------------------------
+    // ---- PREFLIGHT --------------------------------------------------------
     await publishEvent(job.jobId, { type: "step", step: "PREFLIGHT", status: "running" });
     try {
       const pre = await preflight({
@@ -115,9 +158,6 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
         msg: `preflight: dry=${pre.dryMs}ms, est $${pre.estimateUsd.toFixed(4)}, remaining $${pre.remainingUsd.toFixed(4)}`,
       });
     } catch (e) {
-      // Preflight failures are surfaced but not auto-fatal — the user may have
-      // raised the budget separately. We log and continue; the gate runner
-      // catches genuine bugs after the actual render.
       await publishEvent(job.jobId, {
         type: "log",
         level: "warn",
@@ -125,7 +165,7 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
       });
     }
 
-    // ---- RENDER + GATES -----------------------------------------------------
+    // ---- RENDER + GATES ----------------------------------------------------
     await publishEvent(job.jobId, { type: "step", step: "RENDER", status: "running" });
     const renderRes = await runRender({
       projectId: job.projectId,
@@ -191,8 +231,10 @@ function beatsToComposition(
   beats: Beat[],
   preset: ReturnType<typeof getPreset>,
   projectId: string,
+  acquired: AcquiredAsset[],
 ): Composition {
   const clips: Composition["clips"] = [];
+  const assets: AssetRef[] = [];
   let t = 0;
   for (let i = 0; i < beats.length; i++) {
     const b = beats[i]!;
@@ -207,13 +249,31 @@ function beatsToComposition(
       playbackOffset: 0,
       props: propsForBlock(block, b),
     });
+
+    // Layer any acquired assets for this beat as a KenBurnsImage on track 1,
+    // sized to the beat. Image-only for MVP; video B-rolls land in Phase 2.
+    const beatAssets = acquired.filter((a) => a.beatId === b.id);
+    for (const a of beatAssets) {
+      if (a.asset.kind !== "image") continue;
+      assets.push(a.asset);
+      clips.push({
+        id: `${b.id}-bg-${assets.length}`,
+        kind: "block",
+        block: "KenBurnsImage",
+        trackIndex: 1,
+        start: Number(t.toFixed(3)),
+        duration: Number(b.duration.toFixed(3)),
+        playbackOffset: 0,
+        props: { src: a.asset.src, direction: "in" },
+      });
+    }
     t += b.duration;
   }
   const composition: Composition = {
     id: projectId,
     canvas: preset.canvas,
     duration: 0,
-    assets: [],
+    assets,
     clips,
     variables: {},
   };

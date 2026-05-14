@@ -33,3 +33,4 @@ jobs:
       - run: pnpm --filter @hyperframe-editor/worker smoke:dryrun
       - run: pnpm --filter @hyperframe-editor/worker smoke:concat
       - run: pnpm --filter @hyperframe-editor/worker smoke:composition
+      - run: pnpm --filter @hyperframe-editor/worker smoke:acquire

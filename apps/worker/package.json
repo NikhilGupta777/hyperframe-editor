@@ -21,6 +21,7 @@
     "smoke:dryrun": "tsx scripts/smoke-dryrun.ts",
     "smoke:concat": "tsx scripts/smoke-concat.ts",
     "smoke:composition": "tsx scripts/smoke-composition.ts",
+    "smoke:acquire": "tsx scripts/smoke-acquire.ts",
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
