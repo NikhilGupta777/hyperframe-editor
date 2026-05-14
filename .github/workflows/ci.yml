@@ -25,3 +25,4 @@ jobs:
       - run: pnpm --filter @hyperframe-editor/worker smoke:gates
       - run: pnpm --filter @hyperframe-editor/worker smoke:tweak
       - run: pnpm --filter @hyperframe-editor/worker smoke:edit-source
+      - run: pnpm --filter @hyperframe-editor/worker smoke:budget
