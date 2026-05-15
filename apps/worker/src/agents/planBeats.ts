@@ -1,10 +1,15 @@
 import type { Beat, Preset } from "@hyperframe-editor/core";
 import { vertex } from "@hyperframe-editor/providers";
-import type { Brief } from "./writeBrief.js";
+import type { Brief, AgentUsage } from "./writeBrief.js";
 
 export interface PlanRequest {
   brief: Brief;
   preset: Preset;
+}
+
+export interface PlanResult {
+  beats: Beat[];
+  usage: AgentUsage | null;
 }
 
 const SCHEMA = {
@@ -39,12 +44,12 @@ const SCHEMA = {
   },
 };
 
-export async function planBeats(req: PlanRequest): Promise<Beat[]> {
+export async function planBeats(req: PlanRequest): Promise<PlanResult> {
   // Deterministic stub when Vertex isn't configured: sample one beat per slot
   // at the slot's mid-duration. Beats now also synthesise asset cues from the
   // brief title so the offline path still exercises asset acquisition.
   if (!process.env.GOOGLE_CLOUD_PROJECT && !process.env.VERTEX_PROJECT) {
-    return req.preset.skeleton.map<Beat>((slot, i) => ({
+    const beats = req.preset.skeleton.map<Beat>((slot, i) => ({
       id: slot.id,
       narration:
         i === 0
@@ -65,6 +70,7 @@ export async function planBeats(req: PlanRequest): Promise<Beat[]> {
               },
             ],
     }));
+    return { beats, usage: null };
   }
 
   const system = `You are a video director. Given a brief and a preset's beat skeleton, return a list of beats as STRICT JSON. Each beat's duration must lie inside its slot's durRange. Use only block names listed for the slot. Output JSON only.`;
@@ -82,13 +88,17 @@ export async function planBeats(req: PlanRequest): Promise<Beat[]> {
     jsonSchema: SCHEMA,
   });
   const parsed = (r.parsed ?? JSON.parse(r.text)) as { beats: Beat[] };
-  return parsed.beats.map((b, i) => ({
+  const beats = parsed.beats.map((b, i) => ({
     ...b,
     id: b.id || req.preset.skeleton[i]?.id || `beat-${i}`,
     blocks: b.blocks?.length ? b.blocks : req.preset.skeleton[i]?.blocks.slice(0, 1) ?? [],
     duration: clamp(b.duration, req.preset.skeleton[i]?.durRange ?? [1, 60]),
     assetCues: b.assetCues ?? [],
   }));
+  return {
+    beats,
+    usage: { model: "gemini-3.1-pro", tokensIn: r.tokensIn, tokensOut: r.tokensOut },
+  };
 }
 
 function midOf(lo: number, hi: number): number {

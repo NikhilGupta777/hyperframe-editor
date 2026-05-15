@@ -4,16 +4,15 @@
  *   load preset → WRITE_BRIEF → PLAN_BEATS → ACQUIRE_ASSETS → COMPOSE → LINT
  *     → PREFLIGHT → RENDER → run all 8 gates → mark job succeeded
  *
- * Wave K updates:
- *   - ACQUIRE_ASSETS now actually runs. Per-beat asset cues are resolved via
- *     packages/providers (Pixabay → Unsplash → Imagen 4 fast). Each fetched
- *     asset is hashed, downloaded into the workDir's assets/ folder, and
- *     stitched into the composition as a BRollWindow on track 1 sized to the
- *     beat's window.
- *   - When no keys are configured the loop still completes; ACQUIRE_ASSETS
- *     simply finds nothing and the composition stays text-only.
- *   - We always emit a `tool` SSE event per acquired asset so the chat panel
- *     can show "fetched 3 images from Pixabay" style progress.
+ * Cost ledger:
+ *   - Every Vertex call (writeBrief, planBeats) records its tokensIn/tokensOut
+ *     under provider 'vertex-gemini-3.1-pro'.
+ *   - Every paid image-gen call records under 'vertex-imagen-4.0-fast-generate-001'.
+ *   - Render charges priceRender(composition.duration) under 'oracle-render'.
+ *   - Each entry is persisted to cost_events (when DATABASE_URL is set) AND
+ *     emitted as a `tool` SSE event so the editor's top-bar can show running
+ *     totals live. A final `costSummary` event tells the UI to refresh the
+ *     persisted total once the job is done.
  */
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -37,6 +36,7 @@ import { runRender } from "../render/runRender.js";
 import { runGates } from "../gates/runner.js";
 import { recordJobStart, recordJobFinish, persistComposition } from "./persist.js";
 import { preflight } from "./preflight.js";
+import { makeCostTracker } from "./cost.js";
 
 interface ComposeJobPayload {
   prompt: string;
@@ -61,6 +61,12 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
   const workDir = await mkdtemp(join(tmpdir(), `hf-${job.jobId}-`));
   await mkdir(join(workDir, "assets"), { recursive: true });
 
+  const cost = makeCostTracker({
+    jobId: job.jobId,
+    projectId: job.projectId,
+    publish: (e) => publishEvent(job.jobId, e),
+  });
+
   try {
     let composition: Composition;
 
@@ -69,7 +75,11 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
     } else {
       // ---- WRITE_BRIEF ------------------------------------------------------
       await publishEvent(job.jobId, { type: "step", step: "WRITE_BRIEF", status: "running" });
-      const brief = await writeBrief({ prompt: payload.prompt, preset });
+      const briefRes = await writeBrief({ prompt: payload.prompt, preset });
+      const brief = briefRes.brief;
+      if (briefRes.usage) {
+        await cost.recordText(briefRes.usage.model, briefRes.usage.tokensIn, briefRes.usage.tokensOut);
+      }
       await publishEvent(job.jobId, {
         type: "log",
         level: "info",
@@ -78,7 +88,11 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
 
       // ---- PLAN_BEATS -------------------------------------------------------
       await publishEvent(job.jobId, { type: "step", step: "PLAN_BEATS", status: "running" });
-      const beats: Beat[] = await planBeats({ brief, preset });
+      const planRes = await planBeats({ brief, preset });
+      const beats: Beat[] = planRes.beats;
+      if (planRes.usage) {
+        await cost.recordText(planRes.usage.model, planRes.usage.tokensIn, planRes.usage.tokensOut);
+      }
       await publishEvent(job.jobId, {
         type: "log",
         level: "info",
@@ -99,12 +113,21 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
         publish: async (msg) =>
           publishEvent(job.jobId, { type: "log", level: "info", msg }),
       });
+      if (acquired.generatedImagesByModel.fast > 0) {
+        await cost.recordImage(
+          "imagen-4.0-fast-generate-001",
+          acquired.generatedImagesByModel.fast,
+        );
+      }
+      if (acquired.generatedImagesByModel.hq > 0) {
+        await cost.recordImage("gemini-3-pro-image", acquired.generatedImagesByModel.hq);
+      }
       await publishEvent(job.jobId, {
         type: "log",
         level: "info",
-        msg: `acquired ${acquired.length} asset(s)`,
+        msg: `acquired ${acquired.assets.length} asset(s)`,
       });
-      for (const a of acquired) {
+      for (const a of acquired.assets) {
         await publishEvent(job.jobId, {
           type: "tool",
           name: "asset",
@@ -114,13 +137,14 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
             kind: a.asset.kind,
             provider: a.asset.attribution?.provider,
             src: a.asset.src,
+            generated: a.generated ?? false,
           },
         });
       }
 
       // ---- COMPOSE ----------------------------------------------------------
       await publishEvent(job.jobId, { type: "step", step: "COMPOSE", status: "running" });
-      composition = beatsToComposition(beats, preset, job.projectId, acquired);
+      composition = beatsToComposition(beats, preset, job.projectId, acquired.assets);
 
       // ---- LINT (self-heal) -------------------------------------------------
       await publishEvent(job.jobId, { type: "step", step: "LINT", status: "running" });
@@ -150,7 +174,7 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
         composition,
         preset,
         budgetUsd: payload.budgetUsd ?? 1.0,
-        spentUsd: payload.spentUsd ?? 0,
+        spentUsd: (payload.spentUsd ?? 0) + cost.total(),
       });
       await publishEvent(job.jobId, {
         type: "log",
@@ -175,6 +199,7 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
       onProgress: (pct, frame, total) =>
         publishEvent(job.jobId, { type: "progress", pct, frame, total }),
     });
+    await cost.recordRender(composition.duration);
 
     await publishEvent(job.jobId, { type: "step", step: "GATES", status: "running" });
     const gateReport = await runGates({
@@ -211,16 +236,25 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
       ]),
     ) as Record<string, "pass" | "warn" | "fail" | "skip">;
 
+    await cost.emitSummary();
     await publishEvent(job.jobId, {
       type: "done",
       url: renderRes.publicUrl,
       gates: summary as Record<string, "pass" | "warn" | "fail">,
     });
-    await recordJobFinish(job.jobId, "succeeded", { url: renderRes.publicUrl }, gateReport);
+    await recordJobFinish(
+      job.jobId,
+      "succeeded",
+      { url: renderRes.publicUrl, costUsd: cost.total() },
+      gateReport,
+    );
   } catch (e) {
+    // Best-effort summary emit even on failure so the UI's running total reflects
+    // partial spend (e.g. brief tokens consumed before a render failure).
+    await cost.emitSummary().catch(() => undefined);
     const message = e instanceof Error ? e.message : String(e);
     await publishEvent(job.jobId, { type: "error", message });
-    await recordJobFinish(job.jobId, "failed", null, null, message);
+    await recordJobFinish(job.jobId, "failed", { costUsd: cost.total() }, null, message);
     throw e;
   } finally {
     await rm(workDir, { recursive: true, force: true });
@@ -282,11 +316,30 @@ function beatsToComposition(
 }
 
 function propsForBlock(block: string, beat: Beat): Record<string, unknown> {
+  const narration = beat.narration ?? "";
   switch (block) {
     case "HookTitle":
-      return { text: beat.narration ?? "Hook", subtext: undefined };
+      return { text: narration || "Hook", subtext: undefined };
     case "EndCard":
-      return { cta: beat.narration ?? "Subscribe" };
+      return { cta: narration || "Subscribe" };
+    case "KineticHeadline":
+      return {
+        words: (narration || beat.id).split(/\s+/).filter(Boolean).slice(0, 8),
+      };
+    case "QuoteCard":
+      return { quote: narration || "—", attribution: undefined };
+    case "LowerThird":
+      return { name: narration || "Speaker", title: undefined };
+    case "LogoBug":
+      return { handle: "@hyperframeeditor" };
+    case "CaptionBlock":
+      return { lines: [], style: "tiktok" };
+    case "KenBurnsImage":
+      return { src: undefined, direction: "in" };
+    case "BRollWindow":
+      return { src: undefined };
+    case "SplitScreen":
+      return { left: undefined, right: undefined };
     default:
       return {};
   }

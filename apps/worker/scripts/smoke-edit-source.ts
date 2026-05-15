@@ -35,8 +35,6 @@ await execa(
     "lavfi",
     "-i",
     "sine=frequency=440:sample_rate=16000:duration=8",
-    "-vf",
-    "drawtext=text='source video for edit-source smoke':fontcolor=white:fontsize=28:x=(w-text_w)/2:y=(h-text_h)/2",
     "-pix_fmt",
     "yuv420p",
     "-shortest",

@@ -13,6 +13,20 @@ export interface Brief {
   mandates: string[];
 }
 
+/**
+ * Token-usage report from the underlying LLM call, or null when the agent ran
+ * the deterministic offline path (no spend to record).
+ */
+export interface AgentUsage {
+  model: "gemini-3.1-pro" | "gemini-2.5-flash";
+  tokensIn: number;
+  tokensOut: number;
+}
+export interface BriefResult {
+  brief: Brief;
+  usage: AgentUsage | null;
+}
+
 const SCHEMA = {
   type: "object",
   required: ["title", "summary", "mandates"],
@@ -23,7 +37,7 @@ const SCHEMA = {
   },
 };
 
-export async function writeBrief(req: BriefRequest): Promise<Brief> {
+export async function writeBrief(req: BriefRequest): Promise<BriefResult> {
   const system = `You are a video director. Read a user's brief and the active preset; produce a concise creative brief as STRICT JSON. No markdown, no commentary.`;
   const userMsg = JSON.stringify({
     userPrompt: req.prompt,
@@ -40,9 +54,12 @@ export async function writeBrief(req: BriefRequest): Promise<Brief> {
   // that still satisfies the contract, so downstream code stays exercised.
   if (!process.env.GOOGLE_CLOUD_PROJECT && !process.env.VERTEX_PROJECT) {
     return {
-      title: deriveTitle(req.prompt),
-      summary: req.prompt.slice(0, 240),
-      mandates: deriveMandates(req.prompt),
+      brief: {
+        title: deriveTitle(req.prompt),
+        summary: req.prompt.slice(0, 240),
+        mandates: deriveMandates(req.prompt),
+      },
+      usage: null,
     };
   }
 
@@ -55,9 +72,12 @@ export async function writeBrief(req: BriefRequest): Promise<Brief> {
   });
   const parsed = (r.parsed ?? JSON.parse(r.text)) as Brief;
   return {
-    title: parsed.title,
-    summary: parsed.summary,
-    mandates: parsed.mandates ?? [],
+    brief: {
+      title: parsed.title,
+      summary: parsed.summary,
+      mandates: parsed.mandates ?? [],
+    },
+    usage: { model: "gemini-3.1-pro", tokensIn: r.tokensIn, tokensOut: r.tokensOut },
   };
 }
 

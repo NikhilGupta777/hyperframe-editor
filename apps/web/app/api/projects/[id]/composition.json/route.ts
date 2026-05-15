@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { CompositionSchema } from "@hyperframe-editor/core";
-import { notFound, readJson, serverError } from "@/lib/api";
+import { readJson, serverError } from "@/lib/api";
+import { getOrBootstrapComposition, saveComposition } from "@/lib/composition";
 
 export const runtime = "nodejs";
 
@@ -13,24 +14,21 @@ export const runtime = "nodejs";
  * (composition/route.ts) is for preview iframes and renderers; this JSON form
  * is for the timeline / props panel / agent-driven mutations.
  *
- * Storage: oci://bucket/projects/<id>/composition.json when STORAGE_BUCKET is
- * set; otherwise an in-process map keyed by id (good enough for offline preview).
+ * On first visit, the GET handler bootstraps a tiny placeholder composition
+ * so the timeline component always has something to render before the first
+ * Render click. PUT persists a new AST and rebuilds the HTML form so the
+ * preview iframe stays in sync without waiting for a render.
  */
-const ephemeral = new Map<string, unknown>();
-
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  if (!process.env.STORAGE_BUCKET) {
-    const raw = ephemeral.get(id);
-    if (!raw) return notFound("composition");
-    return NextResponse.json({ composition: raw });
-  }
   try {
-    const { getStorage, paths } = await import("@hyperframe-editor/storage");
-    const storage = getStorage();
-    const key = paths.composition(id).replace(/\.html$/, ".json");
-    const buf = await storage.getObject(key);
-    return NextResponse.json({ composition: JSON.parse(buf.toString("utf8")) });
+    const { composition, bootstrapped } = await getOrBootstrapComposition(id);
+    return NextResponse.json(
+      { composition, bootstrapped },
+      {
+        headers: bootstrapped ? { "x-hyperframe-bootstrapped": "1" } : {},
+      },
+    );
   } catch (e) {
     return serverError(e);
   }
@@ -42,20 +40,14 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const { id } = await params;
   const parsed = await readJson(req, PutBody);
   if (parsed instanceof NextResponse) return parsed;
-  if (!process.env.STORAGE_BUCKET) {
-    ephemeral.set(id, parsed.composition);
-    return NextResponse.json({ ok: true, persisted: "ephemeral" });
-  }
   try {
-    const { getStorage, paths } = await import("@hyperframe-editor/storage");
-    const storage = getStorage();
-    const key = paths.composition(id).replace(/\.html$/, ".json");
-    await storage.putObject(
-      key,
-      JSON.stringify(parsed.composition, null, 2),
-      "application/json; charset=utf-8",
-    );
-    return NextResponse.json({ ok: true, persisted: "oci" });
+    // Re-parse to apply schema defaults (e.g. canvas.fps=30) and pin the output type.
+    const composition = CompositionSchema.parse(parsed.composition);
+    await saveComposition(id, composition);
+    return NextResponse.json({
+      ok: true,
+      persisted: process.env.STORAGE_BUCKET ? "oci" : "ephemeral",
+    });
   } catch (e) {
     return serverError(e);
   }

@@ -8,6 +8,12 @@ import { Timeline } from "@/components/editor/Timeline";
 import { PropsPanel } from "@/components/editor/PropsPanel";
 import { RenderHistory } from "@/components/editor/RenderHistory";
 import { StockSearch } from "@/components/editor/StockSearch";
+import {
+  DEFAULT_PROJECT_BUDGET_USD,
+  formatUsd,
+  sumCostEvents,
+  type ProjectCostSnapshot,
+} from "@/lib/cost";
 
 /**
  * Editor client component. The route's server component awaits Next 15's
@@ -25,6 +31,11 @@ export function EditorClient({ id }: { id: string }) {
   const [composition, setComposition] = useState<Composition | null>(null);
   const [selectedClip, setSelectedClip] = useState<string | null>(null);
   const [tab, setTab] = useState<"chat" | "assets" | "history" | "props">("chat");
+  const [costSnapshot, setCostSnapshot] = useState<ProjectCostSnapshot>({
+    spentUsd: 0,
+    budgetUsd: DEFAULT_PROJECT_BUDGET_USD,
+    authoritative: false,
+  });
   const previewRef = useRef<HTMLIFrameElement>(null);
 
   const presets = useMemo(() => Object.values(PRESETS), []);
@@ -33,6 +44,28 @@ export function EditorClient({ id }: { id: string }) {
     if (!last || last.type !== "done") return null;
     return last.gates ?? null;
   }, [events]);
+
+  // Running cost = persisted total + in-flight increments from this session's
+  // SSE stream. Once the worker emits costSummary we re-fetch the persisted
+  // snapshot and the in-flight sum drops back to 0 for the next render.
+  const inFlightCostUsd = useMemo(() => sumCostEvents(events), [events]);
+  const runningCostUsd = costSnapshot.spentUsd + inFlightCostUsd;
+
+  const refreshCost = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/projects/${id}/cost`, { cache: "no-store" });
+      if (!r.ok) return;
+      const snap = (await r.json()) as ProjectCostSnapshot;
+      setCostSnapshot(snap);
+    } catch {
+      // ignore
+    }
+  }, [id]);
+
+  // Initial cost fetch on mount + whenever a render finishes.
+  useEffect(() => {
+    void refreshCost();
+  }, [refreshCost, doneUrl]);
 
   // SSE — subscribe to the worker's progress stream once we have a jobId.
   useEffect(() => {
@@ -43,9 +76,18 @@ export function EditorClient({ id }: { id: string }) {
         const data = JSON.parse(ev.data) as AgentEvent;
         setEvents((prev) => [...prev, data]);
         if (data.type === "done" && data.url) setDoneUrl(data.url);
+        if (
+          data.type === "tool" &&
+          (data as { name?: string }).name === "costSummary"
+        ) {
+          // Worker says "I'm done charging" — refresh the persisted spend so
+          // the in-flight sum (which we stop adding from now on) is folded in.
+          void refreshCost();
+        }
         if (data.type === "done") {
-          // Refresh composition snapshot after a successful render.
+          // Refresh composition snapshot + cost after a successful render.
           void loadComposition();
+          void refreshCost();
         }
       } catch {
         /* ignore */
@@ -54,7 +96,7 @@ export function EditorClient({ id }: { id: string }) {
     es.addEventListener("message", onAny);
     es.addEventListener("error", () => es.close());
     return () => es.close();
-  }, [renderingJobId]);
+  }, [renderingJobId, refreshCost]);
 
   const loadComposition = useCallback(async () => {
     try {
@@ -130,8 +172,29 @@ export function EditorClient({ id }: { id: string }) {
     <main className="grid h-screen grid-cols-[400px_1fr]">
       <section className="flex flex-col border-r border-muted/30">
         <div className="border-b border-muted/30 px-4 py-3">
-          <div className="font-display text-lg">hyperframe-editor</div>
-          <div className="text-xs opacity-60">project {id}</div>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="font-display text-lg">hyperframe-editor</div>
+              <div className="text-xs opacity-60">project {id}</div>
+            </div>
+            <div
+              className="rounded border border-muted/40 bg-ink/40 px-2 py-1 text-right text-[10px] leading-tight"
+              title={
+                costSnapshot.authoritative
+                  ? "Project spend (cost_events ledger)"
+                  : "Preview mode \u2014 cost ledger not connected"
+              }
+            >
+              <div className="opacity-60 uppercase tracking-wider">Spent</div>
+              <div className="font-mono text-paper">
+                {formatUsd(runningCostUsd)}
+                <span className="opacity-50"> / {formatUsd(costSnapshot.budgetUsd)}</span>
+              </div>
+              {!costSnapshot.authoritative && (
+                <div className="text-[9px] opacity-50">preview</div>
+              )}
+            </div>
+          </div>
         </div>
         <div className="space-y-3 p-4 border-b border-muted/30">
           <label className="block text-xs uppercase tracking-wider opacity-60">Preset</label>

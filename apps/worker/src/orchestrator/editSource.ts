@@ -37,6 +37,7 @@ import { packTranscript } from "../agents/packTranscript.js";
 import { proposeEDL } from "../agents/proposeEDL.js";
 import { autoCaption, type CaptionLine } from "../tools/autoCaption.js";
 import { recordJobStart, recordJobFinish, persistComposition } from "./persist.js";
+import { makeCostTracker } from "./cost.js";
 
 interface SourceRef {
   id: string;
@@ -73,6 +74,12 @@ export async function runEditSourceLoop(job: QueuedJob): Promise<void> {
   await recordJobStart(job.jobId);
   const workDir = await mkdtemp(join(tmpdir(), `hf-edit-${job.jobId}-`));
   await mkdir(join(workDir, "assets"), { recursive: true });
+
+  const cost = makeCostTracker({
+    jobId: job.jobId,
+    projectId: job.projectId,
+    publish: (e) => publishEvent(job.jobId, e),
+  });
 
   try {
     // ---- PROBE + TRANSCRIBE every source ------------------------------------
@@ -112,14 +119,17 @@ export async function runEditSourceLoop(job: QueuedJob): Promise<void> {
         step: `TRANSCRIBE:${src.id}`,
         status: "running",
       });
-      const segments = await transcribeOrStub(wav, src.language ?? payload.language);
+      const transcribed = await transcribeOrStub(wav, src.language ?? payload.language);
+      if (transcribed.tokensIn > 0 || transcribed.tokensOut > 0) {
+        await cost.recordText("gemini-3.1-pro", transcribed.tokensIn, transcribed.tokensOut);
+      }
       staged.push({
         id: src.id,
         localPath: local,
         duration: probed.durationSec,
         width: probed.width,
         height: probed.height,
-        segments,
+        segments: transcribed.segments,
       });
     }
 
@@ -135,12 +145,16 @@ export async function runEditSourceLoop(job: QueuedJob): Promise<void> {
     });
 
     await publishEvent(job.jobId, { type: "step", step: "PROPOSE_EDL", status: "running" });
-    const edl = await proposeEDL({
+    const edlRes = await proposeEDL({
       packed,
       direction: payload.direction,
       targetDurationSec: payload.targetDurationSec,
       allowedSourceIds: staged.map((s) => s.id),
     });
+    const edl = edlRes.edl;
+    if (edlRes.usage) {
+      await cost.recordText(edlRes.usage.model, edlRes.usage.tokensIn, edlRes.usage.tokensOut);
+    }
     await publishEvent(job.jobId, {
       type: "log",
       level: "info",
@@ -209,6 +223,7 @@ export async function runEditSourceLoop(job: QueuedJob): Promise<void> {
       onProgress: (pct, frame, total) =>
         publishEvent(job.jobId, { type: "progress", pct, frame, total }),
     });
+    await cost.recordRender(composition.duration);
 
     await publishEvent(job.jobId, { type: "step", step: "GATES", status: "running" });
     const gateReport = await runGates({
@@ -235,16 +250,23 @@ export async function runEditSourceLoop(job: QueuedJob): Promise<void> {
       throw new Error(`blocking gate failures: ${blocking.map((g) => g!.id).join(", ")}`);
     }
 
+    await cost.emitSummary();
     await publishEvent(job.jobId, {
       type: "done",
       url: renderRes.publicUrl,
       gates: summarise(gateReport),
     });
-    await recordJobFinish(job.jobId, "succeeded", { url: renderRes.publicUrl }, gateReport);
+    await recordJobFinish(
+      job.jobId,
+      "succeeded",
+      { url: renderRes.publicUrl, costUsd: cost.total() },
+      gateReport,
+    );
   } catch (e) {
+    await cost.emitSummary().catch(() => undefined);
     const message = e instanceof Error ? e.message : String(e);
     await publishEvent(job.jobId, { type: "error", message });
-    await recordJobFinish(job.jobId, "failed", null, null, message);
+    await recordJobFinish(job.jobId, "failed", { costUsd: cost.total() }, null, message);
     throw e;
   } finally {
     await rm(workDir, { recursive: true, force: true });
@@ -290,7 +312,14 @@ async function stageSource(uri: string, workDir: string): Promise<string> {
   return localCopy;
 }
 
-async function transcribeOrStub(wavPath: string, language?: string) {
+async function transcribeOrStub(
+  wavPath: string,
+  language?: string,
+): Promise<{
+  segments: Array<{ start: number; end: number; text: string; speaker?: string }>;
+  tokensIn: number;
+  tokensOut: number;
+}> {
   if (process.env.GOOGLE_CLOUD_PROJECT || process.env.VERTEX_PROJECT) {
     try {
       const bytes = await readFile(wavPath);
@@ -299,7 +328,7 @@ async function transcribeOrStub(wavPath: string, language?: string) {
         language,
         withSpeakers: true,
       });
-      return r.segments;
+      return { segments: r.segments, tokensIn: r.tokensIn, tokensOut: r.tokensOut };
     } catch {
       // fall through to stub
     }
@@ -307,12 +336,13 @@ async function transcribeOrStub(wavPath: string, language?: string) {
   // Deterministic stub: 8 fake segments evenly spaced.
   const total = 30;
   const seg = total / 8;
-  return Array.from({ length: 8 }, (_, i) => ({
+  const segments = Array.from({ length: 8 }, (_, i) => ({
     start: i * seg,
     end: (i + 1) * seg,
     text: `synthetic segment ${i + 1}`,
     speaker: i % 2 === 0 ? "S0" : "S1",
   }));
+  return { segments, tokensIn: 0, tokensOut: 0 };
 }
 
 function edlDuration(edl: EDL): number {
