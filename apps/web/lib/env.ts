@@ -29,12 +29,12 @@ const ENV_SPECS: EnvSpec[] = [
   {
     key: "STORAGE_BUCKET",
     required: false,
-    description: "OCI Object Storage bucket name. Without it, compositions are ephemeral (in-memory).",
+    description: "S3 bucket name for compositions + renders. Without it, compositions are ephemeral (in-memory).",
   },
   {
     key: "STORAGE_PUBLIC_BASE_URL",
     required: false,
-    description: "Public CDN base URL for assets. Optional; falls back to streaming through the route.",
+    description: "Public CDN/CloudFront base URL for assets. Optional; falls back to signed URLs.",
   },
   {
     key: "PIXABAY_API_KEY",
