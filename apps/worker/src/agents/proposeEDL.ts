@@ -1,5 +1,11 @@
 import { vertex } from "@hyperframe-editor/providers";
 import type { EDL, EDLEntry } from "@hyperframe-editor/core";
+import type { AgentUsage } from "./writeBrief.js";
+
+export interface ProposeEDLResult {
+  edl: EDL;
+  usage: AgentUsage | null;
+}
 
 const SCHEMA = {
   type: "object",
@@ -33,14 +39,17 @@ export interface ProposeEDLRequest {
   allowedSourceIds: string[];
 }
 
-export async function proposeEDL(req: ProposeEDLRequest): Promise<EDL> {
+export async function proposeEDL(req: ProposeEDLRequest): Promise<ProposeEDLResult> {
   // Offline-friendly stub: produce a single entry that grabs the start of the
   // first allowed source for the requested duration. Phase 1 uses this when
   // Vertex isn't configured so the editor still demonstrates the loop.
   if (!process.env.GOOGLE_CLOUD_PROJECT && !process.env.VERTEX_PROJECT) {
     const sourceId = req.allowedSourceIds[0] ?? "src-0";
     return {
-      entries: [{ sourceId, in: 0, out: req.targetDurationSec, layer: 0, speed: 1 }],
+      edl: {
+        entries: [{ sourceId, in: 0, out: req.targetDurationSec, layer: 0, speed: 1 }],
+      },
+      usage: null,
     };
   }
 
@@ -68,5 +77,8 @@ Hard rules:
     jsonSchema: SCHEMA,
   });
   const parsed = (r.parsed ?? JSON.parse(r.text)) as { entries: EDLEntry[] };
-  return { entries: parsed.entries };
+  return {
+    edl: { entries: parsed.entries },
+    usage: { model: "gemini-3.1-pro", tokensIn: r.tokensIn, tokensOut: r.tokensOut },
+  };
 }

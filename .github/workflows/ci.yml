@@ -27,6 +27,7 @@ jobs:
       - run: pnpm --filter @hyperframe-editor/worker smoke:edit-source
       - run: pnpm --filter @hyperframe-editor/worker smoke:edit-source-real
       - run: pnpm --filter @hyperframe-editor/worker smoke:budget
+      - run: pnpm --filter @hyperframe-editor/worker smoke:cost
       - run: pnpm --filter @hyperframe-editor/worker smoke:tools
       - run: pnpm --filter @hyperframe-editor/worker smoke:failure
       - run: pnpm --filter @hyperframe-editor/worker smoke:autofix

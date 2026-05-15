@@ -27,7 +27,7 @@ try {
     },
   ];
   const r = await acquireAssets({ beats, workDir: work, freeOnly: true });
-  if (r.length !== 0) {
+  if (r.assets.length !== 0) {
     console.error("FAIL  offline path returned non-empty:", r);
     failed++;
   } else console.log("PASS  offline path returns []");
@@ -73,18 +73,18 @@ try {
 
   try {
     const r2 = await acquireAssets({ beats, workDir: work, freeOnly: true });
-    if (r2.length !== 1) {
+    if (r2.assets.length !== 1) {
       console.error("FAIL  stubbed pixabay didn't yield asset:", r2);
       failed++;
-    } else if (!r2[0]?.asset.src.startsWith("assets/")) {
-      console.error("FAIL  asset src not relative:", r2[0]?.asset.src);
+    } else if (!r2.assets[0]?.asset.src.startsWith("assets/")) {
+      console.error("FAIL  asset src not relative:", r2.assets[0]?.asset.src);
       failed++;
-    } else if (r2[0]?.asset.attribution?.provider !== "Pixabay") {
-      console.error("FAIL  attribution missing", r2[0]);
+    } else if (r2.assets[0]?.asset.attribution?.provider !== "Pixabay") {
+      console.error("FAIL  attribution missing", r2.assets[0]);
       failed++;
     } else {
       console.log(
-        `PASS  stubbed pixabay -> ${r2[0]?.asset.src} (${r2[0]?.asset.attribution?.author})`,
+        `PASS  stubbed pixabay -> ${r2.assets[0]?.asset.src} (${r2.assets[0]?.asset.attribution?.author})`,
       );
     }
   } finally {

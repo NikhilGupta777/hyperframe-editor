@@ -7,7 +7,7 @@
  * Errors here log + swallow when DB/storage are unavailable so a worker still
  * functions in "no-cloud" smoke mode (the smoke tests don't need either).
  */
-import { type Composition } from "@hyperframe-editor/core";
+import { type Composition, type Preset, getPreset, TIKTOK_HOOK } from "@hyperframe-editor/core";
 
 interface PersistComposition {
   load(projectId: string): Promise<Composition>;
@@ -101,5 +101,27 @@ export async function recordJobFinish(
       .where(eq(jobs.id, jobId));
   } catch (e) {
     console.warn("[persist] recordJobFinish failed (continuing):", e);
+  }
+}
+
+/**
+ * Resolve the preset for a project. Looks up `projects.preset` in the DB when
+ * available; falls back to TIKTOK_HOOK in offline / smoke runs. The TWEAK loop
+ * uses this to rebuild HTML without re-reading the original render request.
+ */
+export async function loadProjectPreset(projectId: string): Promise<Preset> {
+  if (!process.env.DATABASE_URL) return TIKTOK_HOOK;
+  try {
+    const { getProject } = await import("@hyperframe-editor/db");
+    const p = await getProject(projectId);
+    if (!p?.preset) return TIKTOK_HOOK;
+    try {
+      return getPreset(p.preset);
+    } catch {
+      return TIKTOK_HOOK;
+    }
+  } catch (e) {
+    console.warn("[persist] loadProjectPreset failed (continuing):", e);
+    return TIKTOK_HOOK;
   }
 }
