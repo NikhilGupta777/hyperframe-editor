@@ -65,8 +65,15 @@ if (process.env.DATABASE_URL && process.env.WORKER_SKIP_MIGRATIONS !== "1") {
 
 const stop = await runConsumerLoop(consumerName);
 
+// ---- Health-check HTTP server -------------------------------------------
+import { startHealthServer, setHealthDeps } from "./health.js";
+let loopAlive = true;
+setHealthDeps({ isLoopAlive: () => loopAlive });
+startHealthServer();
+
 const shutdown = async (sig: string) => {
   console.log(`[worker] received ${sig}; draining…`);
+  loopAlive = false;
   await stop();
   process.exit(0);
 };
