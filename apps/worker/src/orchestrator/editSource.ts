@@ -319,7 +319,7 @@ function normalisePayload(raw: unknown): EditSourcePayload & { sources: SourceRe
 }
 
 async function stageSource(uri: string, workDir: string): Promise<string> {
-  if (uri.startsWith("oci://") && process.env.STORAGE_BUCKET) {
+  if ((uri.startsWith("oci://") || uri.startsWith("s3://")) && process.env.STORAGE_BUCKET) {
     const { getStorage } = await import("@hyperframe-editor/storage");
     const storage = getStorage();
     const { key } = storage.parseUri(uri);

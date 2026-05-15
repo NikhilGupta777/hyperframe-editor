@@ -30,7 +30,7 @@ export async function gateG1(ctx: GateContext): Promise<Omit<GateResult, "id" | 
   const baseDir = ctx.htmlPath ? dirname(ctx.htmlPath) : process.cwd();
 
   for (const ref of refs) {
-    if (ref.startsWith("oci://")) {
+    if (ref.startsWith("oci://") || ref.startsWith("s3://")) {
       try {
         const { getStorage } = await import("@hyperframe-editor/storage");
         const storage = getStorage();
