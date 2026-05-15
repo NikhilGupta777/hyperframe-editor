@@ -24,11 +24,17 @@ type DragState =
  *   when the clip is media-backed).
  * - Click a clip to select; the props panel opposite shows its values.
  *
- * Mutations apply optimistically on pointerup; the caller's onMutate is called
- * with the new AST so it can PATCH the server. Failed PATCH should refetch.
+ * Mutations apply optimistically on pointermove; the caller's onMutate is
+ * called with the new AST so it can PATCH the server. Failed PATCH should
+ * refetch the AST from the server (the editor does this on each `done`).
+ *
+ * Pixel→time math:
+ *   We measure the rendered track row, not the outer panel, so padding,
+ *   borders, and the ruler don't bias clip positions. The first interaction
+ *   pulls the bounding rect off the first rendered Track element.
  */
 export function Timeline({ composition, selectedId, onSelect, onMutate }: Props) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const trackContainerRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<DragState>(null);
 
   const tracks = useMemo(() => groupByTrack(composition?.clips ?? []), [composition]);
@@ -38,15 +44,20 @@ export function Timeline({ composition, selectedId, onSelect, onMutate }: Props)
   const total = Math.max(composition.duration, 1);
 
   function pxToTime(px: number): number {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return 0;
+    // Read the actual rendered track row (first Track div). Falls back to the
+    // container width if no track is rendered yet.
+    const firstTrack = trackContainerRef.current?.querySelector("[data-track-row]");
+    const rect =
+      (firstTrack as HTMLElement | null)?.getBoundingClientRect() ??
+      trackContainerRef.current?.getBoundingClientRect();
+    if (!rect || rect.width === 0) return 0;
     return (px / rect.width) * total;
   }
 
   function startMove(e: React.PointerEvent, clip: Clip) {
     if (e.button !== 0) return;
     e.stopPropagation();
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     setDrag({
       kind: "move",
       clipId: clip.id,
@@ -55,8 +66,9 @@ export function Timeline({ composition, selectedId, onSelect, onMutate }: Props)
     });
   }
   function startResize(e: React.PointerEvent, clip: Clip, edge: "left" | "right") {
+    if (e.button !== 0) return;
     e.stopPropagation();
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     setDrag({ kind: "resize", clipId: clip.id, edge, pointerStart: e.clientX, original: clip });
   }
   function onMove(e: React.PointerEvent) {
@@ -98,13 +110,13 @@ export function Timeline({ composition, selectedId, onSelect, onMutate }: Props)
     <div className="border-t border-muted/30 bg-black/30 p-3 text-xs">
       <div className="flex items-center justify-between pb-2">
         <div className="opacity-70">
-          {composition.clips.length} clip{composition.clips.length === 1 ? "" : "s"} ·{" "}
+          {composition.clips.length} clip{composition.clips.length === 1 ? "" : "s"} \u00b7{" "}
           {total.toFixed(1)}s
         </div>
-        <Ruler total={total} />
       </div>
+      <Ruler total={total} />
       <div
-        ref={containerRef}
+        ref={trackContainerRef}
         className="space-y-1 select-none"
         onPointerMove={onMove}
         onPointerUp={onUp}
@@ -133,7 +145,7 @@ export function Timeline({ composition, selectedId, onSelect, onMutate }: Props)
 function Ruler({ total }: { total: number }) {
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((p) => p * total);
   return (
-    <div className="flex w-1/2 justify-between text-[10px] opacity-50">
+    <div className="flex w-full justify-between text-[10px] opacity-50 pb-1">
       {ticks.map((t, i) => (
         <span key={i}>{t.toFixed(1)}s</span>
       ))}
@@ -157,7 +169,10 @@ function Track({
   onResizeStart: (e: React.PointerEvent, clip: Clip, edge: "left" | "right") => void;
 }) {
   return (
-    <div className="relative h-9 bg-ink/60 border border-muted/20 rounded overflow-hidden">
+    <div
+      data-track-row
+      className="relative h-9 bg-ink/60 border border-muted/20 rounded overflow-hidden"
+    >
       {clips.map((c) => {
         const left = (c.start / total) * 100;
         const width = (c.duration / total) * 100;
@@ -178,10 +193,12 @@ function Track({
               onPointerDown={(e) => onResizeStart(e, c, "left")}
               className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize bg-accent/0 hover:bg-accent/60"
               aria-label="resize-left"
+              type="button"
             />
             <button
               onPointerDown={(e) => onMoveStart(e, c)}
               className="absolute inset-0 cursor-grab active:cursor-grabbing px-1.5 text-left truncate"
+              type="button"
             >
               <span className="font-mono opacity-80">{c.block ?? c.kind}</span>
             </button>
@@ -189,6 +206,7 @@ function Track({
               onPointerDown={(e) => onResizeStart(e, c, "right")}
               className="absolute right-0 top-0 bottom-0 w-1 cursor-ew-resize bg-accent/0 hover:bg-accent/60"
               aria-label="resize-right"
+              type="button"
             />
           </div>
         );

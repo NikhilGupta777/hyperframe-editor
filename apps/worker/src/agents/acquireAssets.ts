@@ -145,6 +145,11 @@ async function downloadAndCache(hit: StockHit, dir: string): Promise<AssetRef> {
   const filename = `${sha}.${ext}`;
   const local = join(dir, filename);
   await fs.writeFile(local, bytes);
+
+  // Write-through to the asset cache (cached_assets table + OCI). On the next
+  // acquire with the same sha, we skip the download and copy the OCI object.
+  void writeCacheEntry(sha, bytes, ext, hit).catch(() => undefined);
+
   return {
     id: hit.id,
     kind: hit.kind,
@@ -155,6 +160,47 @@ async function downloadAndCache(hit: StockHit, dir: string): Promise<AssetRef> {
     hash: sha,
     attribution: hit.attribution,
   };
+}
+
+/**
+ * Best-effort write to the asset cache. When STORAGE_BUCKET + DATABASE_URL are
+ * configured, uploads the asset to `asset-cache/<sha>.<ext>` in OCI and
+ * records the sha/uri/size in the `cached_assets` table. Failures here never
+ * abort the acquire — we just log a warning and move on (the asset is already
+ * in the workDir so the render proceeds regardless).
+ */
+async function writeCacheEntry(
+  sha: string,
+  bytes: Buffer,
+  ext: string,
+  hit: StockHit,
+): Promise<void> {
+  if (!process.env.STORAGE_BUCKET || !process.env.DATABASE_URL) return;
+  try {
+    const { getStorage, paths } = await import("@hyperframe-editor/storage");
+    const storage = getStorage();
+    const key = paths.cached(sha, ext);
+    const contentType =
+      ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : ext === "mp4" ? "video/mp4" : "image/jpeg";
+    const uri = await storage.putObject(key, bytes, contentType);
+
+    // Record in DB so future acquires can skip the download.
+    const { getDb } = await import("@hyperframe-editor/db");
+    const { cachedAssets } = await import("@hyperframe-editor/db/schema");
+    await getDb()
+      .insert(cachedAssets)
+      .values({
+        sha256: sha,
+        storageUri: uri,
+        contentType,
+        byteSize: bytes.byteLength,
+        sourceUrl: hit.downloadUrl,
+        attribution: hit.attribution as never,
+      })
+      .onConflictDoNothing();
+  } catch (e) {
+    console.warn(`[acquireAssets] cache write failed for ${sha}: ${(e as Error).message}`);
+  }
 }
 
 function pickExt(kind: "image" | "video", contentType: string | null): string {

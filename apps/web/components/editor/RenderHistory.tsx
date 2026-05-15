@@ -12,21 +12,27 @@ interface JobRow {
 }
 
 /**
- * Render history panel. Polls /api/projects/:id/jobs every 5s while the user is
- * looking at it. We keep the UI dumb on purpose; live progress is handled by
- * SSE in the AgentLog, this view is the "what happened in the past" surface.
+ * Render history panel. Polls /api/projects/:id/jobs every 5s while the user
+ * is looking at it AND the tab is visible. We pause when document.hidden flips
+ * true so a parked tab doesn't keep banging on the API.
  *
- * NOTE: /api/projects/:id/jobs hasn't been wired yet — when DATABASE_URL is
- * absent we render an empty state.
+ * Live progress is handled by SSE in the AgentLog; this view is the "what
+ * happened in the past" surface, so polling is fine here.
+ *
+ * NOTE: /api/projects/:id/jobs returns [] when DATABASE_URL is absent so the
+ * preview deploy without infra renders an empty state instead of erroring.
  */
 export function RenderHistory({ projectId }: { projectId: string }) {
   const [rows, setRows] = useState<JobRow[]>([]);
 
   useEffect(() => {
     let alive = true;
+    let timer: NodeJS.Timeout | null = null;
+
     const tick = async () => {
+      if (!alive) return;
       try {
-        const r = await fetch(`/api/projects/${projectId}/jobs`);
+        const r = await fetch(`/api/projects/${projectId}/jobs`, { cache: "no-store" });
         if (!r.ok) return;
         const j = (await r.json()) as { jobs?: JobRow[] };
         if (alive) setRows(j.jobs ?? []);
@@ -34,11 +40,29 @@ export function RenderHistory({ projectId }: { projectId: string }) {
         // ignore — DB may not be configured
       }
     };
+
+    const schedule = () => {
+      if (timer) clearTimeout(timer);
+      // Skip the next tick if the tab is hidden; we'll re-arm when it comes back.
+      const interval = typeof document !== "undefined" && document.hidden ? 30_000 : 5_000;
+      timer = setTimeout(async () => {
+        await tick();
+        if (alive) schedule();
+      }, interval);
+    };
+
     void tick();
-    const id = setInterval(tick, 5000);
+    schedule();
+
+    const onVis = () => {
+      if (!document.hidden) void tick();
+    };
+    document.addEventListener("visibilitychange", onVis);
+
     return () => {
       alive = false;
-      clearInterval(id);
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVis);
     };
   }, [projectId]);
 
@@ -56,7 +80,7 @@ export function RenderHistory({ projectId }: { projectId: string }) {
             <span className="font-mono opacity-70">{r.kind}</span>{" "}
             <Status status={r.status} />
           </span>
-          {r.output?.url && (
+          {r.output?.url && /^https?:/.test(r.output.url) && (
             <a
               href={r.output.url}
               className="underline opacity-80"

@@ -4,6 +4,7 @@ import * as schema from "./schema.js";
 
 export * from "./schema.js";
 export * from "./repos.js";
+export { ensureMigrated, isMigrated } from "./migrate.js";
 
 export type Database = PostgresJsDatabase<typeof schema>;
 

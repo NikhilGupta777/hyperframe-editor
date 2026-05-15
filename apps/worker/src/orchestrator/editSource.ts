@@ -38,6 +38,7 @@ import { proposeEDL } from "../agents/proposeEDL.js";
 import { autoCaption, type CaptionLine } from "../tools/autoCaption.js";
 import { recordJobStart, recordJobFinish, persistComposition } from "./persist.js";
 import { makeCostTracker } from "./cost.js";
+import { finalizeRender } from "./finalize.js";
 
 interface SourceRef {
   id: string;
@@ -55,6 +56,9 @@ interface EditSourcePayload {
   language?: string;
   /** Burn captions into the composition? Default: true. */
   captions?: boolean;
+  /** Project budget in USD; mirrors compose.ts so single-source clips can be capped too. */
+  budgetUsd?: number;
+  spentUsd?: number;
 }
 
 interface StagedSource {
@@ -163,7 +167,12 @@ export async function runEditSourceLoop(job: QueuedJob): Promise<void> {
 
     // ---- CONCAT cuts with ffmpeg ---------------------------------------------
     await publishEvent(job.jobId, { type: "step", step: "CONCAT_CUTS", status: "running" });
-    const cutMp4 = join(workDir, "cuts.mp4");
+    // Write into the workDir's assets/ folder so the resulting AssetRef can use
+    // a stable relative path that survives serialization. Composition.json is
+    // shipped to the editor preview iframe, where /tmp/... paths from the
+    // worker process are obviously unresolvable.
+    const cutMp4 = join(workDir, "assets", "cuts.mp4");
+    const cutAssetSrc = "assets/cuts.mp4";
     const idToPath = new Map(staged.map((s) => [s.id, s.localPath]));
     await concatCuts(
       edl.entries.map((e) => ({
@@ -200,7 +209,7 @@ export async function runEditSourceLoop(job: QueuedJob): Promise<void> {
 
     // ---- COMPOSE_OVER_EDL ---------------------------------------------------
     await publishEvent(job.jobId, { type: "step", step: "COMPOSE_OVER_EDL", status: "running" });
-    const composition = composeOverEDL(cutMp4, cutProbe.durationSec, preset, job.projectId, captionLines);
+    const composition = composeOverEDL(cutAssetSrc, cutProbe.durationSec, preset, job.projectId, captionLines);
 
     // ---- LINT --------------------------------------------------------------
     await publishEvent(job.jobId, { type: "step", step: "LINT", status: "running" });
@@ -250,16 +259,34 @@ export async function runEditSourceLoop(job: QueuedJob): Promise<void> {
       throw new Error(`blocking gate failures: ${blocking.map((g) => g!.id).join(", ")}`);
     }
 
+    // ---- FINALIZE -----------------------------------------------------------
+    await publishEvent(job.jobId, { type: "step", step: "FINALIZE", status: "running" });
+    const fin = await finalizeRender({
+      projectId: job.projectId,
+      jobId: job.jobId,
+      workDir,
+      mp4Path: renderRes.mp4Path,
+      htmlPath: renderRes.htmlPath,
+      composition,
+    });
+    await publishEvent(job.jobId, {
+      type: "log",
+      level: "info",
+      msg: fin.ociUri
+        ? `finalize: uploaded ${fin.assetsUploaded} asset(s) + mp4 (${(fin.bytesUploaded / 1e6).toFixed(1)} MB)`
+        : `finalize: skipped (STORAGE_BUCKET unset; using ${fin.publicUrl})`,
+    });
+
     await cost.emitSummary();
     await publishEvent(job.jobId, {
       type: "done",
-      url: renderRes.publicUrl,
+      url: fin.publicUrl,
       gates: summarise(gateReport),
     });
     await recordJobFinish(
       job.jobId,
       "succeeded",
-      { url: renderRes.publicUrl, costUsd: cost.total() },
+      { url: fin.publicUrl, ociUri: fin.ociUri, costUsd: cost.total() },
       gateReport,
     );
   } catch (e) {
@@ -334,6 +361,13 @@ async function transcribeOrStub(
     }
   }
   // Deterministic stub: 8 fake segments evenly spaced.
+  // In production we REFUSE to return canned data unless WORKER_OFFLINE_STUBS=1.
+  if (process.env.WORKER_OFFLINE_STUBS !== "1") {
+    throw new Error(
+      "Vertex AI is not configured and WORKER_OFFLINE_STUBS is not set. " +
+        "Refusing to return canned transcript in production.",
+    );
+  }
   const total = 30;
   const seg = total / 8;
   const segments = Array.from({ length: 8 }, (_, i) => ({
@@ -386,9 +420,12 @@ function mergeTranscriptForEDL(
 /**
  * Build a composition that wraps the already-cut MP4 as a single video clip on
  * track 0, and (optionally) layers caption blocks on track 1.
+ *
+ * `cutSrc` is a project-relative path (e.g. `assets/cuts.mp4`) so the
+ * composition.json the editor consumes never bakes in a /tmp absolute path.
  */
 function composeOverEDL(
-  cutMp4: string,
+  cutSrc: string,
   cutDuration: number,
   preset: ReturnType<typeof getPreset>,
   projectId: string,
@@ -402,7 +439,7 @@ function composeOverEDL(
       start: 0,
       duration: cutDuration,
       playbackOffset: 0,
-      props: { src: cutMp4 },
+      props: { src: cutSrc },
     },
   ];
   if (captions.length > 0) {
@@ -424,7 +461,7 @@ function composeOverEDL(
     id: projectId,
     canvas: preset.canvas,
     duration: 0,
-    assets: [{ id: "main", kind: "video", src: cutMp4 }],
+    assets: [{ id: "main", kind: "video", src: cutSrc }],
     clips,
     variables: {},
   };

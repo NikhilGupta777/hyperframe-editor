@@ -8,14 +8,17 @@
  *   4. If gates still fail, the orchestrator surfaces them to the user
  *
  * Currently fixable:
- *   G3 (duration mismatch) → re-render with a forced-duration ffmpeg pass that
- *      pads or trims to the composition's data-duration.
- *   G5 (audio not clipping / off-LUFS) → re-encode audio in place with
- *      ffmpeg loudnorm at the preset's LUFS target.
+ *   G3 (duration mismatch) → re-encode trimming/padding to data-duration
+ *   G5 (audio not clipping / off-LUFS) → ffmpeg loudnorm at the preset target
  *
  * Anything else: surface the failure to the user; don't attempt magic.
+ *
+ * Each fix writes a new MP4 alongside the original (suffix `-fixed-<step>`)
+ * and threads the path forward. We deliberately do NOT mutate the input file
+ * in place: that race-condition'd against any reader that still holds the
+ * original path (gate runner, persistComposition, future smoke retry harness).
+ * The orchestrator's workDir cleanup covers temp-file pruning at end-of-job.
  */
-import { copyFile, rm } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { execa } from "execa";
 
@@ -41,11 +44,15 @@ export async function applyAutoFixes(
 ): Promise<AutoFixResult> {
   let path = ctx.mp4Path;
   const applied: string[] = [];
+  let stepCounter = 0;
 
   // ---- G3: duration mismatch — pad or trim ---------------------------------
   if (report.G3 && !report.G3.pass) {
     await ctx.publish?.(`auto-fix: G3 — re-encoding to ${ctx.expectedDurationSec}s`);
-    const fixed = join(dirname(path), `g3-fixed-${Date.now()}.mp4`);
+    const fixed = join(
+      dirname(path),
+      `g3-fixed-${++stepCounter}-${Date.now()}.mp4`,
+    );
     await execa(
       "ffmpeg",
       [
@@ -66,10 +73,6 @@ export async function applyAutoFixes(
       ],
       { reject: true },
     );
-    await rm(path, { force: true });
-    await copyFile(fixed, path).catch(() => {
-      // ignore — copy failure isn't fatal; we'll point at fixed instead
-    });
     path = fixed;
     applied.push("G3:duration-trim");
   }
@@ -79,7 +82,10 @@ export async function applyAutoFixes(
     await ctx.publish?.(
       `auto-fix: G5 — applying loudnorm I=${ctx.preset.guardrails.lufsTarget}`,
     );
-    const fixed = join(dirname(path), `g5-fixed-${Date.now()}.mp4`);
+    const fixed = join(
+      dirname(path),
+      `g5-fixed-${++stepCounter}-${Date.now()}.mp4`,
+    );
     try {
       await loudnorm(path, fixed, ctx.preset.guardrails.lufsTarget);
       path = fixed;

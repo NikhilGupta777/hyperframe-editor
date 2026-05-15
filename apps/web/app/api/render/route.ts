@@ -8,19 +8,35 @@ const Body = z.object({
   projectId: z.string(),
   prompt: z.string().min(3),
   presetId: z.string().default("tiktok-hook"),
+  /** Worker job kind. Default `compose` (the BUILD loop). */
+  kind: z.enum(["compose", "tweak", "edit_source"]).default("compose"),
 });
 
 /**
- * POST /api/render — enqueue a compose job.
+ * POST /api/render — enqueue a worker job.
  *
- * The browser POSTs the prompt + preset; we mint a jobId, push the job onto the
- * Redis stream the worker consumes, and return the jobId. The browser then
- * subscribes to /api/render/:id/stream for SSE progress.
+ * Accepts compose / tweak / edit_source. The browser POSTs the prompt + preset;
+ * we mint a jobId, push the job onto the Redis stream the worker consumes, and
+ * return the jobId. The browser then subscribes to /api/render/:id/stream for
+ * SSE progress.
  *
- * If REDIS_URL is unset (local dev with no infra), we degrade to an in-memory
- * mock so the editor UI still renders the SSE stream.
+ * Required infra: Redis. Earlier waves silently fell through to a synthetic
+ * "mock-stream" when REDIS_URL was unset — which made it possible to ship a
+ * deploy where the editor showed canned events for nonexistent renders. That
+ * mock has been removed: a missing REDIS_URL now returns a hard 503 so the
+ * configuration error surfaces instead of being papered over.
  */
 export async function POST(req: Request) {
+  if (!process.env.REDIS_URL) {
+    return NextResponse.json(
+      {
+        error:
+          "Render queue is not configured. Set REDIS_URL on the web deployment and ensure a worker is running against the same Redis.",
+      },
+      { status: 503 },
+    );
+  }
+
   const json = await req.json().catch(() => null);
   const parsed = Body.safeParse(json);
   if (!parsed.success) {
@@ -30,21 +46,13 @@ export async function POST(req: Request) {
   const jobId = randomUUID();
   const job = {
     jobId,
-    kind: "compose" as const,
+    kind: parsed.data.kind,
     projectId: parsed.data.projectId,
     payload: { prompt: parsed.data.prompt, presetId: parsed.data.presetId },
   };
 
-  if (process.env.REDIS_URL) {
-    const { enqueueJob } = await import("@hyperframe-editor/queue");
-    await enqueueJob(job);
-  } else {
-    // Degraded path: store the prompt in a process-local map so the SSE handler
-    // can replay a synthetic stream. Useful for Vercel preview deploys without
-    // backend infrastructure.
-    const { mockEnqueue } = await import("./mock-stream.js");
-    mockEnqueue(job);
-  }
+  const { enqueueJob } = await import("@hyperframe-editor/queue");
+  await enqueueJob(job);
 
   return NextResponse.json({ jobId });
 }
