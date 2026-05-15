@@ -43,7 +43,14 @@ export async function proposeEDL(req: ProposeEDLRequest): Promise<ProposeEDLResu
   // Offline-friendly stub: produce a single entry that grabs the start of the
   // first allowed source for the requested duration. Phase 1 uses this when
   // Vertex isn't configured so the editor still demonstrates the loop.
+  // In production we REFUSE to return canned data unless WORKER_OFFLINE_STUBS=1.
   if (!process.env.GOOGLE_CLOUD_PROJECT && !process.env.VERTEX_PROJECT) {
+    if (process.env.WORKER_OFFLINE_STUBS !== "1") {
+      throw new Error(
+        "Vertex AI is not configured and WORKER_OFFLINE_STUBS is not set. " +
+          "Refusing to return canned EDL in production.",
+      );
+    }
     const sourceId = req.allowedSourceIds[0] ?? "src-0";
     return {
       edl: {

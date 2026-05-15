@@ -25,6 +25,25 @@ if (process.env.PLACEHOLDER === "1") {
 const consumerName = process.env.WORKER_NAME ?? `worker-${process.pid}`;
 console.log(`[worker] starting ${consumerName}`);
 
+// ---- Production health-check -------------------------------------------
+// When the worker runs in production mode (PLACEHOLDER=0 and
+// WORKER_OFFLINE_STUBS is unset), assert that all required infra is wired.
+// A missing env var here would cause silent failures downstream (renders
+// skip upload, agents return errors per-job, queries fail on empty schema).
+// Better to crash at boot — loud and once — than per-job in production.
+if (process.env.WORKER_OFFLINE_STUBS !== "1") {
+  const required = ["DATABASE_URL", "REDIS_URL", "STORAGE_BUCKET", "GOOGLE_CLOUD_PROJECT"];
+  const missing = required.filter((k) => !process.env[k]);
+  if (missing.length > 0) {
+    console.error(
+      `[worker] FATAL: missing required env vars for production: ${missing.join(", ")}. ` +
+        `Set WORKER_OFFLINE_STUBS=1 to suppress this check for offline/test runs.`,
+    );
+    process.exit(1);
+  }
+  console.log("[worker] production env check passed (%d vars ok)", required.length);
+}
+
 // ---- Apply DB migrations on first boot ----------------------------------
 // We call this BEFORE the consumer loop so we never accept a job whose
 // orchestrator would query a not-yet-migrated table. Skip when DATABASE_URL

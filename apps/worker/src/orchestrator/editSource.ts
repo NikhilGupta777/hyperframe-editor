@@ -361,6 +361,13 @@ async function transcribeOrStub(
     }
   }
   // Deterministic stub: 8 fake segments evenly spaced.
+  // In production we REFUSE to return canned data unless WORKER_OFFLINE_STUBS=1.
+  if (process.env.WORKER_OFFLINE_STUBS !== "1") {
+    throw new Error(
+      "Vertex AI is not configured and WORKER_OFFLINE_STUBS is not set. " +
+        "Refusing to return canned transcript in production.",
+    );
+  }
   const total = 30;
   const seg = total / 8;
   const segments = Array.from({ length: 8 }, (_, i) => ({

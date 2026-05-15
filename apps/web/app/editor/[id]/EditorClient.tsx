@@ -14,6 +14,7 @@ import { Timeline } from "@/components/editor/Timeline";
 import { PropsPanel } from "@/components/editor/PropsPanel";
 import { RenderHistory } from "@/components/editor/RenderHistory";
 import { StockSearch } from "@/components/editor/StockSearch";
+import { SourceUpload } from "@/components/editor/SourceUpload";
 import {
   DEFAULT_PROJECT_BUDGET_USD,
   formatUsd,
@@ -425,7 +426,9 @@ export function EditorClient({ id }: { id: string }) {
             </div>
           )}
           {tab === "assets" && (
-            <div className="p-3">
+            <div className="p-3 space-y-4">
+              <SourceUpload projectId={id} />
+              <hr className="border-muted/30" />
               <StockSearch />
             </div>
           )}
