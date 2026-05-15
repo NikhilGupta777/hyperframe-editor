@@ -73,4 +73,10 @@ RUN mkdir -p $PUPPETEER_CACHE_DIR \
 RUN node -e "const p=require('puppeteer'); const exe=p.executablePath(); require('fs').accessSync(exe); console.log('chromium ok:', exe)"
 
 ENV PLACEHOLDER=0
+ENV HEALTH_PORT=8787
+EXPOSE 8787
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8787/health || exit 1
+
 CMD ["node", "/repo/apps/worker/dist/index.js"]
