@@ -137,6 +137,11 @@ function pickBest(hits: StockHit[]): StockHit | undefined {
 }
 
 async function downloadAndCache(hit: StockHit, dir: string): Promise<AssetRef> {
+  // Cache read-back: if we've seen this exact URL before, copy from OCI
+  // instead of re-downloading from the stock provider.
+  const cached = await readCacheEntry(hit.downloadUrl, dir);
+  if (cached) return cached;
+
   const r = await fetch(hit.downloadUrl, { redirect: "follow" });
   if (!r.ok) throw new Error(`download ${hit.downloadUrl} -> ${r.status}`);
   const bytes = Buffer.from(await r.arrayBuffer());
@@ -160,6 +165,54 @@ async function downloadAndCache(hit: StockHit, dir: string): Promise<AssetRef> {
     hash: sha,
     attribution: hit.attribution,
   };
+}
+
+/**
+ * Cache read-back. Checks if we've previously downloaded an asset from this
+ * exact URL. If found in cached_assets, copies the bytes from OCI into the
+ * local workDir instead of re-fetching from the stock provider. Returns null
+ * when the cache misses (no DB, no matching row, OCI read fails, etc.).
+ */
+async function readCacheEntry(sourceUrl: string, dir: string): Promise<AssetRef | null> {
+  if (!process.env.STORAGE_BUCKET || !process.env.DATABASE_URL) return null;
+  try {
+    const { getDb } = await import("@hyperframe-editor/db");
+    const { cachedAssets } = await import("@hyperframe-editor/db/schema");
+    const { eq } = await import("drizzle-orm");
+    const [row] = await getDb()
+      .select()
+      .from(cachedAssets)
+      .where(eq(cachedAssets.sourceUrl, sourceUrl))
+      .limit(1);
+    if (!row) return null;
+
+    const { getStorage } = await import("@hyperframe-editor/storage");
+    const storage = getStorage();
+    const { key } = storage.parseUri(row.storageUri);
+    const bytes = await storage.getObject(key);
+
+    const ext = row.contentType.includes("png")
+      ? "png"
+      : row.contentType.includes("webp")
+        ? "webp"
+        : row.contentType.includes("mp4")
+          ? "mp4"
+          : "jpg";
+    const filename = `${row.sha256}.${ext}`;
+    const local = join(dir, filename);
+    await fs.writeFile(local, bytes);
+
+    return {
+      id: row.sha256.slice(0, 12),
+      kind: row.contentType.startsWith("video/") ? "video" : "image",
+      src: `assets/${filename}`,
+      hash: row.sha256,
+      attribution: (row.attribution as { provider: string; license: string }) ?? undefined,
+    };
+  } catch {
+    // Cache miss or read failure — fall through to network fetch.
+    return null;
+  }
 }
 
 /**
