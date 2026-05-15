@@ -38,6 +38,7 @@ import { proposeEDL } from "../agents/proposeEDL.js";
 import { autoCaption, type CaptionLine } from "../tools/autoCaption.js";
 import { recordJobStart, recordJobFinish, persistComposition } from "./persist.js";
 import { makeCostTracker } from "./cost.js";
+import { finalizeRender } from "./finalize.js";
 
 interface SourceRef {
   id: string;
@@ -258,16 +259,34 @@ export async function runEditSourceLoop(job: QueuedJob): Promise<void> {
       throw new Error(`blocking gate failures: ${blocking.map((g) => g!.id).join(", ")}`);
     }
 
+    // ---- FINALIZE -----------------------------------------------------------
+    await publishEvent(job.jobId, { type: "step", step: "FINALIZE", status: "running" });
+    const fin = await finalizeRender({
+      projectId: job.projectId,
+      jobId: job.jobId,
+      workDir,
+      mp4Path: renderRes.mp4Path,
+      htmlPath: renderRes.htmlPath,
+      composition,
+    });
+    await publishEvent(job.jobId, {
+      type: "log",
+      level: "info",
+      msg: fin.ociUri
+        ? `finalize: uploaded ${fin.assetsUploaded} asset(s) + mp4 (${(fin.bytesUploaded / 1e6).toFixed(1)} MB)`
+        : `finalize: skipped (STORAGE_BUCKET unset; using ${fin.publicUrl})`,
+    });
+
     await cost.emitSummary();
     await publishEvent(job.jobId, {
       type: "done",
-      url: renderRes.publicUrl,
+      url: fin.publicUrl,
       gates: summarise(gateReport),
     });
     await recordJobFinish(
       job.jobId,
       "succeeded",
-      { url: renderRes.publicUrl, costUsd: cost.total() },
+      { url: fin.publicUrl, ociUri: fin.ociUri, costUsd: cost.total() },
       gateReport,
     );
   } catch (e) {

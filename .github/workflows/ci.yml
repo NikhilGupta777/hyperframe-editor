@@ -4,6 +4,13 @@ on:
     branches: [main]
   pull_request:
 
+# CI never has Chromium provisioned, so we pin the render backend to the
+# synthetic ffmpeg fixture for every job. Production never sets this var
+# and gets the real @hyperframes/producer pipeline.
+env:
+  RENDER_BACKEND: synthetic
+  WORKER_SKIP_MIGRATIONS: "1"
+
 jobs:
   build-and-test:
     runs-on: ubuntu-24.04
