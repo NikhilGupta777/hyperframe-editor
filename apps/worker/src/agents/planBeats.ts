@@ -1,5 +1,6 @@
 import type { Beat, Preset } from "@hyperframe-editor/core";
 import { vertex } from "@hyperframe-editor/providers";
+import { FULL_HYPERFRAMES_KNOWLEDGE } from "@hyperframe-editor/compose";
 import type { Brief, AgentUsage } from "./writeBrief.js";
 
 export interface PlanRequest {
@@ -80,7 +81,11 @@ export async function planBeats(req: PlanRequest): Promise<PlanResult> {
     return { beats, usage: null };
   }
 
-  const system = `You are a video director. Given a brief and a preset's beat skeleton, return a list of beats as STRICT JSON. Each beat's duration must lie inside its slot's durRange. Use only block names listed for the slot. Output JSON only.`;
+  const system = `You are a video director using HyperFrames — an HTML-to-video framework.
+
+${FULL_HYPERFRAMES_KNOWLEDGE}
+
+Given a brief and a preset's beat skeleton, return a list of beats as STRICT JSON. Each beat's duration must lie inside its slot's durRange. Use only block names listed for the slot. assetCues must be specific enough that a stock-image search would return useful hits. Output JSON only.`;
   const userMsg = JSON.stringify({
     brief: req.brief,
     skeleton: req.preset.skeleton,

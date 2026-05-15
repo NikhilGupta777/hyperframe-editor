@@ -1,5 +1,6 @@
 import type { Preset } from "@hyperframe-editor/core";
 import { vertex } from "@hyperframe-editor/providers";
+import { FULL_HYPERFRAMES_KNOWLEDGE } from "@hyperframe-editor/compose";
 
 export interface BriefRequest {
   prompt: string;
@@ -38,7 +39,11 @@ const SCHEMA = {
 };
 
 export async function writeBrief(req: BriefRequest): Promise<BriefResult> {
-  const system = `You are a video director. Read a user's brief and the active preset; produce a concise creative brief as STRICT JSON. No markdown, no commentary.`;
+  const system = `You are a video director using HyperFrames — an HTML-to-video framework.
+
+${FULL_HYPERFRAMES_KNOWLEDGE}
+
+Read a user's brief and the active preset; produce a concise creative brief as STRICT JSON. No markdown, no commentary.`;
   const userMsg = JSON.stringify({
     userPrompt: req.prompt,
     preset: {
