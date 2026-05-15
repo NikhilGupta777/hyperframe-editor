@@ -1,0 +1,70 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hf
+      POSTGRES_PASSWORD: hf
+      POSTGRES_DB: hf
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hf -d hf"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "60", "1", "--maxmemory-policy", "noeviction"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - redis-data:/data
+
+  worker:
+    image: ghcr.io/${GITHUB_REPOSITORY:-nikhilgupta777/hyperframe-editor}-worker:${IMAGE_TAG:-main}
+    build:
+      context: ../..
+      dockerfile: apps/worker/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      PLACEHOLDER: "0"
+      DATABASE_URL: postgres://hf:hf@postgres:5432/hf
+      REDIS_URL: redis://redis:6379
+      RENDER_BACKEND: ${RENDER_BACKEND:-synthetic}
+      WORKER_NAME: worker-1
+      # Vertex AI auth: mount the service-account JSON into /secrets and point
+      # GOOGLE_APPLICATION_CREDENTIALS at it.
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/sa.json
+      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
+      GOOGLE_CLOUD_LOCATION: ${GOOGLE_CLOUD_LOCATION:-us-central1}
+      # Stock providers
+      PIXABAY_API_KEY: ${PIXABAY_API_KEY:-}
+      UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}
+      # OCI Object Storage (S3-compatible)
+      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-}
+      STORAGE_REGION: ${STORAGE_REGION:-}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-}
+      STORAGE_PUBLIC_BASE_URL: ${STORAGE_PUBLIC_BASE_URL:-}
+    volumes:
+      - ./secrets:/secrets:ro
+
+volumes:
+  postgres-data:
+  redis-data:

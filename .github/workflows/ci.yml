@@ -1,0 +1,36 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r typecheck
+      - run: pnpm -r --filter '@hyperframe-editor/*' build
+      - run: pnpm --filter @hyperframe-editor/worker smoke
+      - run: pnpm --filter @hyperframe-editor/worker smoke:gates
+      - run: pnpm --filter @hyperframe-editor/worker smoke:tweak
+      - run: pnpm --filter @hyperframe-editor/worker smoke:edit-source
+      - run: pnpm --filter @hyperframe-editor/worker smoke:edit-source-real
+      - run: pnpm --filter @hyperframe-editor/worker smoke:budget
+      - run: pnpm --filter @hyperframe-editor/worker smoke:tools
+      - run: pnpm --filter @hyperframe-editor/worker smoke:failure
+      - run: pnpm --filter @hyperframe-editor/worker smoke:autofix
+      - run: pnpm --filter @hyperframe-editor/worker smoke:dryrun
+      - run: pnpm --filter @hyperframe-editor/worker smoke:concat
+      - run: pnpm --filter @hyperframe-editor/worker smoke:composition
+      - run: pnpm --filter @hyperframe-editor/worker smoke:acquire

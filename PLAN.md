@@ -228,6 +228,7 @@ create table jobs (
   output       jsonb,
   error        text,
   cost_usd     numeric default 0,
+  gates        jsonb,                -- { G1: {pass,details}, G2: {...}, ... }  set on completion
   started_at   timestamptz,
   finished_at  timestamptz,
   created_at   timestamptz default now()
@@ -355,6 +356,25 @@ Each step writes a `jobs` row with input + output. Retries are bounded:
 | render | 1 | retry on a fresh worker pod |
 
 Before any render or paid-API call, the orchestrator computes an **estimated cost** and checks the user's project budget (`projects.budget_usd`). If over budget, the run pauses and surfaces a confirmation prompt to the chat panel.
+
+### 4.6 Quality gates (mandatory from MVP)
+
+Eight gates run automatically. Every gate is a typed function in `packages/core/src/qualityGates.ts` that returns `{ pass: boolean, details, fix? }`. The orchestrator records each gate result on the `jobs` row and refuses to mark a render `succeeded` until **all gates pass** (or the user explicitly waives a gate, recorded in the audit log).
+
+| # | Gate | When it runs | How we check | On fail |
+| --- | --- | --- | --- | --- |
+| G1 | **All assets exist** | after PLAN_BEATS, again after COMPOSE | walk the AST for every `<video src>`, `<img src>`, `<audio src>`, `data-asset-ref` → HEAD each (or stat for local) | Re-fetch / regenerate; if still missing, fail the build before render |
+| G2 | **HyperFrames lint passes** | after every COMPOSE / TWEAK / patch | `runHyperframeLint` from `@hyperframes/producer`, with the V8-isolate false positive filtered | Self-heal up to 2x per the Cloudflare-template loop, then fail |
+| G3 | **Render duration matches expected** | after RENDER | `ffprobe -show_streams` on the output; compare to composition `data-duration` (root); tolerance `±1 frame` | Inspect: most often a missing `tl.set(root, {}, finalDuration)` extender. Auto-add it and re-render once. |
+| G4 | **Captions inside title-safe area** | after COMPOSE, again on render snapshots | static check on caption blocks: bounding box stays within `0.05 .. 0.95` of canvas (TikTok safe zones tighter — preset overrides) | Auto-rescale / reposition; fail if still violated |
+| G5 | **Audio not clipping** | after RENDER | `ffmpeg -af volumedetect`, fail if `max_volume > -1.0 dB` or any sample at full scale; also ITU-R BS.1770-4 LUFS check (target preset-specific, e.g. -14 LUFS for YouTube) | Auto-apply `loudnorm` and re-encode audio only (no re-render) |
+| G6 | **No black/blank frames at key snapshots** | after RENDER | sample frames at 0%, 25%, 50%, 75%, 100% + every cut boundary; mean luma > 5/255 and stddev > 2 (a black frame is mean ≈ 0, stddev ≈ 0) | Likely missed `class="clip"` on a clip — surface the frame timestamps + last working composition diff |
+| G7 | **No network fetch during render** | during RENDER | Chromium `Network.requestWillBeSent` events, allowlist the file:// origin only; emit warnings for CDN scripts (gsap, hyperframes runtime) and assert these are the only off-origin requests | Fail with the disallowed URL list. Fix is to vendor the asset into `assets/`. |
+| G8 | **Output file is playable** | after RENDER | `ffprobe -v error -i out.mp4` exits 0; presence of at least one video stream + (if expected) audio stream; first packet decodes (`-frames:v 1` decode test) | Re-encode pass with `-c:v libx264 -movflags +faststart`; if still bad, fail |
+
+Each gate emits a single SSE `event: gate` with `{ id: "G3", pass: true/false, details, fix }` so the editor's Render Queue panel can render a green/red checklist next to every render.
+
+For the **MVP** (Phase 1) we ship **G1, G2, G3, G7, G8** as blocking gates and **G4, G5, G6** as warnings. Phase 2 promotes the warnings to blocking once we've calibrated their thresholds against real footage.
 
 ---
 
@@ -565,8 +585,14 @@ data: {"name":"search_pixabay","input":{"q":"sunrise temple"},"output":{"hits":1
 event: progress
 data: {"pct":48,"frame":580,"total":1200}
 
+event: gate
+data: {"id":"G2","pass":true,"details":{"errors":[]}}
+
+event: gate
+data: {"id":"G3","pass":false,"details":{"expected":30.0,"actual":29.93},"fix":"add tl.set(root,{},30) extender"}
+
 event: done
-data: {"url":"https://objectstorage.../renders/.../final.mp4"}
+data: {"url":"https://objectstorage.../renders/.../final.mp4","gates":{"G1":"pass","G2":"pass","G3":"pass","G4":"warn","G5":"pass","G6":"pass","G7":"pass","G8":"pass"}}
 ```
 
 ---
@@ -720,12 +746,13 @@ The orchestrator computes a pre-flight estimate before starting any expensive st
 
 Goal: a deployable empty shell.
 
-- [ ] pnpm workspace, turbo, tsconfig.base, prettier, eslint
+- [x] pnpm workspace, turbo, tsconfig.base, prettier, eslint
 - [ ] Next.js 15 app with Tailwind, Zustand, basic auth (magic-link Resend)
 - [ ] Postgres schema migrated (Drizzle or Prisma — pick one in implementation)
 - [ ] OCI Object Storage adapter + signed URL endpoint
 - [ ] Single placeholder editor route that loads `<hyperframes-player>` with a hardcoded composition
 - [ ] Vercel deploy + Oracle worker placeholder that just prints `hello`
+- [x] **Bonus (Day-1 acceptance):** composition AST → HyperFrames-valid HTML pipeline + 18-check smoke test (see `apps/worker/scripts/smoke.ts`)
 
 ### Phase 1 — MVP: prompt → MP4 (Week 2–3)
 
@@ -738,7 +765,7 @@ Goal: replicate the Cloudflare-template magic, on our infra.
 - [ ] `/api/render` queues to Redis, worker renders, MP4 lands in OCI, URL returned.
 - [ ] Editor: chat panel + preview pane + "Render" button. No timeline yet.
 
-**Demo-ready when:** user types "make a 30s reel about morning chai", picks `tiktok-hook`, watches steps stream, gets an MP4 in ~2 minutes.
+**Demo-ready when:** user types "make a 30s reel about morning chai", picks `tiktok-hook`, watches steps stream, gets an MP4 in ~2 minutes **with all 5 blocking gates (G1, G2, G3, G7, G8) green**.
 
 ### Phase 2 — Edit-source loop (Week 4–5)
 
@@ -786,7 +813,7 @@ A concrete, opinionated week-1 checklist. This is the only part of the doc that 
 2. **Day 2.** Stand up Postgres (Neon free) and Redis (Upstash free or self-hosted on Oracle). Apply the schema in §3. Wire Drizzle ORM in `packages/core/src/db.ts`.
 3. **Day 3.** Build the worker Dockerfile (§8.1). On Oracle, `docker compose up -d worker postgres redis`. Have it consume a hardcoded queue message and log "ok".
 4. **Day 4.** Implement `packages/providers/vertex/src/text.ts` and `image.ts`. Smoke-test with `gemini-3.1-pro` from the worker host using a service-account JSON.
-5. **Day 5.** Implement the minimum compose loop in the worker: WRITE_BRIEF → PLAN_BEATS → COMPOSE → LINT (self-heal) → RENDER. Use one preset (`tiktok-hook`) and one block (`HookTitle`). Smoke-test end-to-end with a curl that posts a prompt and gets back an MP4 URL.
+5. **Day 5.** Implement the minimum compose loop in the worker: WRITE_BRIEF → PLAN_BEATS → COMPOSE → LINT (self-heal) → RENDER. Use one preset (`tiktok-hook`) and one block (`HookTitle`). Wire **gates G1, G2, G3, G7, G8** as blocking; G4–G6 as warnings. Smoke-test end-to-end with a curl that posts a prompt and gets back an MP4 URL **plus a green gate checklist**.
 6. **Day 6.** Build the minimum Vercel app: a single editor route showing a chat box and a preview pane. SSE-stream the worker's events into the chat. Render button posts to `/api/render`.
 7. **Day 7.** Hook OCI Object Storage. Replace local-disk artifact paths with `oci://...` everywhere. Verify the rendered MP4 URL works in a browser. Demo to yourself: prompt → MP4. Ship.
 
