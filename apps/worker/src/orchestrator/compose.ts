@@ -37,6 +37,7 @@ import { runGates } from "../gates/runner.js";
 import { recordJobStart, recordJobFinish, persistComposition } from "./persist.js";
 import { preflight } from "./preflight.js";
 import { makeCostTracker } from "./cost.js";
+import { finalizeRender } from "./finalize.js";
 
 interface ComposeJobPayload {
   prompt: string;
@@ -245,16 +246,37 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
       ]),
     ) as Record<string, "pass" | "warn" | "fail" | "skip">;
 
+    // ---- FINALIZE: upload artifacts + mint a viewable URL -----------------
+    // Only runs after gates pass. We want a green render to land in OCI; a
+    // blocked render leaves the workDir alone for post-mortem inspection
+    // before the orchestrator's `rm` cleanup.
+    await publishEvent(job.jobId, { type: "step", step: "FINALIZE", status: "running" });
+    const fin = await finalizeRender({
+      projectId: job.projectId,
+      jobId: job.jobId,
+      workDir,
+      mp4Path: renderRes.mp4Path,
+      htmlPath: renderRes.htmlPath,
+      composition,
+    });
+    await publishEvent(job.jobId, {
+      type: "log",
+      level: "info",
+      msg: fin.ociUri
+        ? `finalize: uploaded ${fin.assetsUploaded} asset(s) + mp4 (${(fin.bytesUploaded / 1e6).toFixed(1)} MB)`
+        : `finalize: skipped (STORAGE_BUCKET unset; using ${fin.publicUrl})`,
+    });
+
     await cost.emitSummary();
     await publishEvent(job.jobId, {
       type: "done",
-      url: renderRes.publicUrl,
+      url: fin.publicUrl,
       gates: summary as Record<string, "pass" | "warn" | "fail">,
     });
     await recordJobFinish(
       job.jobId,
       "succeeded",
-      { url: renderRes.publicUrl, costUsd: cost.total() },
+      { url: fin.publicUrl, ociUri: fin.ociUri, costUsd: cost.total() },
       gateReport,
     );
   } catch (e) {
