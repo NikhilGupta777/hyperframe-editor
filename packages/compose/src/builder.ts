@@ -56,11 +56,17 @@ export function buildCompositionHtml({ preset, composition, bare }: BuildOptions
   const css = fragments.map((f) => f.css).join("\n\n");
   const js = fragments.map((f) => f.js).join("\n\n");
 
-  const fontFamilies = encodeURIComponent(
-    [preset.fontPair.display, preset.fontPair.body]
-      .map((f) => `family=${f.replace(/ /g, "+")}:wght@400;700`)
-      .join("&"),
-  );
+  // Google Fonts URLs are NOT URL-component-encoded. The `family=`, `:wght@400;700`,
+  // and `&` separator are part of the API contract and must be passed verbatim.
+  // Earlier we wrapped the whole thing in encodeURIComponent which turned `=`
+  // into `%3D` and broke font loading silently — every render fell back to the
+  // CSS `system-ui` stack instead of the preset's display+body pair. Now we just
+  // swap spaces for `+` (Google's required encoding for that one char) and join
+  // with raw `&`.
+  const fontFamilies = [preset.fontPair.display, preset.fontPair.body]
+    .filter((f, i, arr) => arr.indexOf(f) === i)
+    .map((f) => `family=${f.replace(/ /g, "+")}:wght@400;700`)
+    .join("&");
 
   const gsapTag = bare ? "" : `<script src="${GSAP_CDN}"></script>`;
   const runtimeTag = bare ? "" : `<script src="${HF_RUNTIME_CDN}"></script>`;
@@ -70,6 +76,7 @@ export function buildCompositionHtml({ preset, composition, bare }: BuildOptions
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=${composition.canvas.width}, height=${composition.canvas.height}">
+<title>HyperFrames \u00b7 ${composition.id}</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?${fontFamilies}&display=block" rel="stylesheet">
 <style>

@@ -12,6 +12,7 @@ import {
   trimClip,
 } from "@hyperframe-editor/compose";
 import { readJson, serverError } from "@/lib/api";
+import { getOrBootstrapComposition, saveComposition } from "@/lib/composition";
 
 export const runtime = "nodejs";
 
@@ -23,9 +24,14 @@ export const runtime = "nodejs";
  *   PATCH  /api/projects/:id/clips                    move/trim/reorder
  *   DELETE /api/projects/:id/clips?clipId=...         remove a clip
  *
- * Mutations all read the current composition.json, apply the mutation via the
- * pure tools in @hyperframe-editor/compose, and PUT it back. We re-serialise
- * through CompositionSchema so a malformed mutation fails fast.
+ * Mutations all read the current composition (bootstrapping a placeholder if
+ * none exists), apply the mutation via the pure tools in
+ * @hyperframe-editor/compose, save the new AST AND its rebuilt HTML so the
+ * preview iframe stays in sync.
+ *
+ * Backed by the shared `lib/composition` helper, so storage-or-ephemeral
+ * routing matches what the composition.json route uses — there's no
+ * "STORAGE_BUCKET required" branch any more.
  */
 
 const Add = z.object({
@@ -62,25 +68,16 @@ const Patch = z.discriminatedUnion("op", [
   }),
 ]);
 
-async function loadComposition(id: string): Promise<Composition | null> {
-  if (!process.env.STORAGE_BUCKET) return null;
-  const { getStorage, paths } = await import("@hyperframe-editor/storage");
-  const storage = getStorage();
-  const key = paths.composition(id).replace(/\.html$/, ".json");
-  const buf = await storage.getObject(key);
-  return CompositionSchema.parse(JSON.parse(buf.toString("utf8")));
+async function loadComposition(id: string): Promise<Composition> {
+  const { composition } = await getOrBootstrapComposition(id);
+  return composition;
 }
 
-async function saveComposition(id: string, comp: Composition) {
-  if (!process.env.STORAGE_BUCKET) return;
-  const { getStorage, paths } = await import("@hyperframe-editor/storage");
-  const storage = getStorage();
-  const key = paths.composition(id).replace(/\.html$/, ".json");
-  await storage.putObject(
-    key,
-    JSON.stringify(comp, null, 2),
-    "application/json; charset=utf-8",
-  );
+async function persist(id: string, comp: Composition): Promise<Composition> {
+  // Validate before saving; saveComposition rebuilds the HTML form.
+  const safe = CompositionSchema.parse(comp);
+  await saveComposition(id, safe);
+  return safe;
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -89,10 +86,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (parsed instanceof NextResponse) return parsed;
   try {
     const comp = await loadComposition(id);
-    if (!comp) return NextResponse.json({ error: "no composition snapshot" }, { status: 404 });
     const next = addClip(comp, parsed);
-    await saveComposition(id, next);
-    return NextResponse.json({ composition: next });
+    return NextResponse.json({ composition: await persist(id, next) });
   } catch (e) {
     return serverError(e);
   }
@@ -104,13 +99,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (parsed instanceof NextResponse) return parsed;
   try {
     const comp = await loadComposition(id);
-    if (!comp) return NextResponse.json({ error: "no composition snapshot" }, { status: 404 });
     let next = comp;
     if (parsed.op === "move") next = moveClip(comp, parsed);
     else if (parsed.op === "trim") next = trimClip(comp, parsed);
     else if (parsed.op === "track-order") next = setTrackOrder(comp, parsed);
-    await saveComposition(id, next);
-    return NextResponse.json({ composition: next });
+    return NextResponse.json({ composition: await persist(id, next) });
   } catch (e) {
     return serverError(e);
   }
@@ -123,10 +116,8 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   if (!clipId) return NextResponse.json({ error: "clipId required" }, { status: 400 });
   try {
     const comp = await loadComposition(id);
-    if (!comp) return NextResponse.json({ error: "no composition snapshot" }, { status: 404 });
     const next = deleteClip(comp, { clipId });
-    await saveComposition(id, next);
-    return NextResponse.json({ composition: next });
+    return NextResponse.json({ composition: await persist(id, next) });
   } catch (e) {
     return serverError(e);
   }

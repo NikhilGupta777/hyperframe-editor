@@ -31,23 +31,37 @@ export interface AcquiredAsset {
   beatId: string;
   slot: string;
   asset: AssetRef;
+  /** True when this asset came from a paid image-gen call. */
+  generated?: boolean;
 }
 
-export async function acquireAssets(req: AcquireRequest): Promise<AcquiredAsset[]> {
+export interface AcquireResult {
+  assets: AcquiredAsset[];
+  /** Counts for the cost ledger. */
+  generatedImagesByModel: { fast: number; hq: number };
+}
+
+export async function acquireAssets(req: AcquireRequest): Promise<AcquireResult> {
   const out: AcquiredAsset[] = [];
+  let fastImages = 0;
+  let hqImages = 0;
   const assetsDir = join(req.workDir, "assets");
   await fs.mkdir(assetsDir, { recursive: true });
 
   for (const beat of req.beats) {
     for (const cue of beat.assetCues) {
       await req.publish?.(`acquire: ${beat.id}/${cue.slot} - "${cue.query}"`);
-      const asset = await tryAcquire(cue.query, cue.kind, assetsDir, req);
-      if (asset) {
-        out.push({ beatId: beat.id, slot: cue.slot, asset });
+      const acquired = await tryAcquire(cue.query, cue.kind, assetsDir, req);
+      if (acquired) {
+        out.push({ beatId: beat.id, slot: cue.slot, ...acquired });
+        if (acquired.generated) fastImages++;
       }
     }
   }
-  return out;
+  return {
+    assets: out,
+    generatedImagesByModel: { fast: fastImages, hq: hqImages },
+  };
 }
 
 async function tryAcquire(
@@ -55,7 +69,7 @@ async function tryAcquire(
   kind: "image" | "video" | "audio",
   dir: string,
   req: AcquireRequest,
-): Promise<AssetRef | null> {
+): Promise<{ asset: AssetRef; generated?: boolean } | null> {
   if (kind === "audio") {
     // Audio acquisition is currently scoped to TTS in the BUILD loop; stock
     // audio via providers will arrive in Phase 4.
@@ -66,7 +80,7 @@ async function tryAcquire(
     try {
       const hits = await pixabay.search({ query, kind, perPage: 5 });
       const best = pickBest(hits);
-      if (best) return await downloadAndCache(best, dir);
+      if (best) return { asset: await downloadAndCache(best, dir) };
     } catch (e) {
       await req.publish?.(`pixabay error: ${(e as Error).message}`);
     }
@@ -76,7 +90,7 @@ async function tryAcquire(
     try {
       const hits = await unsplash.search({ query, kind: "image", perPage: 5 });
       const best = pickBest(hits);
-      if (best) return await downloadAndCache(best, dir);
+      if (best) return { asset: await downloadAndCache(best, dir) };
     } catch (e) {
       await req.publish?.(`unsplash error: ${(e as Error).message}`);
     }
@@ -99,10 +113,13 @@ async function tryAcquire(
         const local = join(dir, filename);
         await fs.writeFile(local, first.bytes);
         return {
-          id: shortHash(query),
-          kind: "image",
-          src: `assets/${filename}`,
-          attribution: { provider: "Vertex AI Imagen", license: "Generated content" },
+          asset: {
+            id: shortHash(query),
+            kind: "image",
+            src: `assets/${filename}`,
+            attribution: { provider: "Vertex AI Imagen", license: "Generated content" },
+          },
+          generated: true,
         };
       }
     } catch (e) {

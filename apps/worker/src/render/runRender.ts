@@ -65,27 +65,43 @@ async function renderSynthetic(
   const duration = req.composition.duration;
   const mp4Path = join(req.workDir, "out.mp4");
 
-  // ffmpeg -f lavfi -i "color=c=...:s=WxH:d=N:r=fps" produces a deterministic
-  // single-color video. We layer drawtext to put the duration so G6 sees variation.
-  const args = [
-    "-y",
-    "-f",
-    "lavfi",
-    "-i",
-    `color=c=0x223344:s=${width}x${height}:d=${duration.toFixed(3)}:r=${fps}`,
-    "-vf",
-    `drawtext=text='hyperframe-editor smoke ${req.projectId}':fontcolor=white:fontsize=42:x=(w-text_w)/2:y=(h-text_h)/2`,
-    "-pix_fmt",
-    "yuv420p",
-    "-movflags",
-    "+faststart",
-    mp4Path,
-  ];
+  // Two-tier filter graph. The pretty path uses drawtext (requires ffmpeg
+  // built with libfreetype) so G6 sees luma variation. The fallback path is a
+  // plain colour source — still deterministic, still passes G3/G8, just won't
+  // exercise drawtext-dependent gates. We sniff the filter list once per
+  // process; ffmpeg builds without libfreetype are common on minimal images
+  // (e.g. johnvansickle.com/ffmpeg static).
+  const colorSrc = `color=c=0x223344:s=${width}x${height}:d=${duration.toFixed(3)}:r=${fps}`;
+  const drawTextOk = await canUseDrawText();
+
+  const args: string[] = ["-y", "-f", "lavfi", "-i", colorSrc];
+  if (drawTextOk) {
+    args.push(
+      "-vf",
+      `drawtext=text='hyperframe-editor smoke ${req.projectId}':fontcolor=white:fontsize=42:x=(w-text_w)/2:y=(h-text_h)/2`,
+    );
+  }
+  args.push("-pix_fmt", "yuv420p", "-movflags", "+faststart", mp4Path);
+
   // Coarse progress emission — synthetic renders are < 1 sec but we still tick.
   await req.onProgress?.(10);
   await execa("ffmpeg", args, { reject: true });
   await req.onProgress?.(100, Math.round(duration * fps), Math.round(duration * fps));
   return { mp4Path };
+}
+
+let drawTextSupported: boolean | null = null;
+async function canUseDrawText(): Promise<boolean> {
+  if (drawTextSupported !== null) return drawTextSupported;
+  try {
+    const { stdout } = await execa("ffmpeg", ["-hide_banner", "-filters"], {
+      reject: false,
+    });
+    drawTextSupported = /\bdrawtext\b/.test(stdout);
+  } catch {
+    drawTextSupported = false;
+  }
+  return drawTextSupported;
 }
 
 async function renderHyperframes(

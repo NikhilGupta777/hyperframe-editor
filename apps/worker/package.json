@@ -15,6 +15,7 @@
     "smoke:edit-source": "tsx scripts/smoke-edit-source.ts",
     "smoke:edit-source-real": "tsx scripts/smoke-edit-source-real.ts",
     "smoke:budget": "tsx scripts/smoke-budget.ts",
+    "smoke:cost": "tsx scripts/smoke-cost.ts",
     "smoke:tools": "tsx scripts/smoke-tools.ts",
     "smoke:failure": "tsx scripts/smoke-failure.ts",
     "smoke:autofix": "tsx scripts/smoke-autofix.ts",
@@ -34,7 +35,6 @@
     "@hyperframe-editor/storage": "workspace:*",
     "drizzle-orm": "^0.36.4",
     "execa": "^9.5.2",
-    "linkedom": "^0.18.12",
     "zod": "^3.24.1"
   },
   "devDependencies": {

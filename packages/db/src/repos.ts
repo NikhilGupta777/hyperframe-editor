@@ -2,7 +2,7 @@
  * Thin repository helpers. The web app and worker share these; raw drizzle queries
  * live close to schema, but anything used in more than one place gets named.
  */
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, gte, sql } from "drizzle-orm";
 import { getDb } from "./index.js";
 import {
   projects,
@@ -101,20 +101,20 @@ export async function recordCost(e: NewCostEvent): Promise<void> {
   await getDb().insert(costEvents).values(e);
 }
 export async function projectSpend(projectId: string): Promise<number> {
-  // Sum of all cost_events for the project, returned as a JS number.
-  const rows = await getDb()
-    .select({ cost: costEvents.costUsd })
+  // Sum in SQL; pulling rows back to JS is wasteful for large ledgers.
+  const [row] = await getDb()
+    .select({ total: sql<string>`coalesce(sum(${costEvents.costUsd}), 0)` })
     .from(costEvents)
     .where(eq(costEvents.projectId, projectId));
-  return rows.reduce((a, r) => a + Number(r.cost), 0);
+  return Number(row?.total ?? 0);
 }
 export async function userMonthSpend(userId: string): Promise<number> {
-  const rows = await getDb()
-    .select({ cost: costEvents.costUsd, at: costEvents.createdAt })
+  // 30-day rolling window. Filter + sum in SQL so a chatty user with thousands
+  // of cost_events doesn't OOM the API edge.
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const [row] = await getDb()
+    .select({ total: sql<string>`coalesce(sum(${costEvents.costUsd}), 0)` })
     .from(costEvents)
-    .where(eq(costEvents.userId, userId));
-  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
-  return rows
-    .filter((r) => +new Date(r.at) >= cutoff)
-    .reduce((a, r) => a + Number(r.cost), 0);
+    .where(and(eq(costEvents.userId, userId), gte(costEvents.createdAt, cutoff)));
+  return Number(row?.total ?? 0);
 }

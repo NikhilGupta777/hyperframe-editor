@@ -54,6 +54,32 @@ export async function* mockStream(jobId: string) {
   for (const id of ["G4", "G5", "G6"]) {
     yield evt({ type: "gate", id, pass: true, severity: "warn" });
   }
+  // Synthetic cost events so the editor's top-bar pill ticks up like in prod.
+  yield evt({
+    type: "tool",
+    name: "cost",
+    output: {
+      provider: "vertex-gemini-3.1-pro",
+      unit: "tokens-out",
+      qty: 320,
+      costUsd: 320 * (10 / 1_000_000),
+    },
+  });
+  yield evt({
+    type: "tool",
+    name: "cost",
+    output: {
+      provider: "oracle-render",
+      unit: "render-second",
+      qty: 30,
+      costUsd: 30 * 0.001,
+    },
+  });
+  yield evt({
+    type: "tool",
+    name: "costSummary",
+    output: { totalUsd: Number((320 * (10 / 1_000_000) + 30 * 0.001).toFixed(6)) },
+  });
   yield evt({
     type: "done",
     url: undefined, // no real MP4 in mock mode

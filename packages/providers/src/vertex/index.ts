@@ -216,6 +216,9 @@ export interface TranscriptSegment {
 export interface TranscribeResponse {
   language: string;
   segments: TranscriptSegment[];
+  /** Token usage for cost ledger; 0/0 when the SDK didn't surface it. */
+  tokensIn: number;
+  tokensOut: number;
 }
 
 export async function transcribe(req: TranscribeRequest): Promise<TranscribeResponse> {
@@ -256,5 +259,12 @@ export async function transcribe(req: TranscribeRequest): Promise<TranscribeResp
   });
 
   const text = result.text ?? "{}";
-  return JSON.parse(text) as TranscribeResponse;
+  const usage = result.usageMetadata;
+  const parsed = JSON.parse(text) as Pick<TranscribeResponse, "language" | "segments">;
+  return {
+    language: parsed.language,
+    segments: parsed.segments,
+    tokensIn: usage?.promptTokenCount ?? 0,
+    tokensOut: usage?.candidatesTokenCount ?? 0,
+  };
 }
