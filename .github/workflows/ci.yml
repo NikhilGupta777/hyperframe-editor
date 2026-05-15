@@ -10,6 +10,7 @@ on:
 env:
   RENDER_BACKEND: synthetic
   WORKER_SKIP_MIGRATIONS: "1"
+  WORKER_OFFLINE_STUBS: "1"
 
 jobs:
   build-and-test:

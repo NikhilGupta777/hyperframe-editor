@@ -48,7 +48,14 @@ export async function planBeats(req: PlanRequest): Promise<PlanResult> {
   // Deterministic stub when Vertex isn't configured: sample one beat per slot
   // at the slot's mid-duration. Beats now also synthesise asset cues from the
   // brief title so the offline path still exercises asset acquisition.
+  // In production we REFUSE to return canned data unless WORKER_OFFLINE_STUBS=1.
   if (!process.env.GOOGLE_CLOUD_PROJECT && !process.env.VERTEX_PROJECT) {
+    if (process.env.WORKER_OFFLINE_STUBS !== "1") {
+      throw new Error(
+        "Vertex AI is not configured and WORKER_OFFLINE_STUBS is not set. " +
+          "Refusing to return canned beats in production.",
+      );
+    }
     const beats = req.preset.skeleton.map<Beat>((slot, i) => ({
       id: slot.id,
       narration:

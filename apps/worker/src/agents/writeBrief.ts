@@ -52,7 +52,16 @@ export async function writeBrief(req: BriefRequest): Promise<BriefResult> {
 
   // If Vertex isn't configured (smoke tests), fall back to a deterministic stub
   // that still satisfies the contract, so downstream code stays exercised.
+  // In production we REFUSE to return canned data unless WORKER_OFFLINE_STUBS=1
+  // is explicitly set — loud failure > silent fakery.
   if (!process.env.GOOGLE_CLOUD_PROJECT && !process.env.VERTEX_PROJECT) {
+    if (process.env.WORKER_OFFLINE_STUBS !== "1") {
+      throw new Error(
+        "Vertex AI is not configured (GOOGLE_CLOUD_PROJECT / VERTEX_PROJECT missing) " +
+          "and WORKER_OFFLINE_STUBS is not set. Refusing to return canned data in production. " +
+          "Set WORKER_OFFLINE_STUBS=1 for offline testing.",
+      );
+    }
     return {
       brief: {
         title: deriveTitle(req.prompt),
