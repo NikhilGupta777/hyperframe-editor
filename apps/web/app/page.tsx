@@ -80,7 +80,10 @@ export default function Home() {
         <div className="mb-3 text-xs uppercase tracking-wider opacity-60">
           New project
         </div>
-        <div className="flex flex-col gap-2 md:flex-row">
+        <form
+          onSubmit={(e) => { e.preventDefault(); void createProject(); }}
+          className="flex flex-col gap-2 md:flex-row"
+        >
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
@@ -99,13 +102,13 @@ export default function Home() {
             ))}
           </select>
           <button
-            onClick={createProject}
+            type="submit"
             disabled={creating || title.trim().length < 1}
             className="rounded bg-accent px-4 py-2 font-semibold text-ink disabled:opacity-50"
           >
             {creating ? "Creating\u2026" : "Create"}
           </button>
-        </div>
+        </form>
         {createError && (
           <div className="mt-3 rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[11px] text-red-200">
             {createError}

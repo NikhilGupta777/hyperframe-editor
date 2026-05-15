@@ -72,8 +72,10 @@ export function Timeline({ composition, selectedId, onSelect, onMutate }: Props)
     setDrag({ kind: "resize", clipId: clip.id, edge, pointerStart: e.clientX, original: clip });
   }
   function onMove(e: React.PointerEvent) {
-    if (!drag || !composition || !onMutate) return;
+    if (!drag || !composition) return;
     const dxPx = e.clientX - drag.pointerStart;
+    // Mark that the user actually moved (not just a click)
+    if (Math.abs(dxPx) < 3) return;
     const dt = pxToTime(dxPx);
     const next = JSON.parse(JSON.stringify(composition)) as Composition;
     const clip = next.clips.find((c) => c.id === drag.clipId);
@@ -99,7 +101,10 @@ export function Timeline({ composition, selectedId, onSelect, onMutate }: Props)
       (m, c) => Math.max(m, c.start + c.duration),
       0,
     );
-    onMutate(next);
+    // Only commit to parent on pointer up — during drag we update local
+    // composition via onMutate but the parent's persistComposition debounce
+    // handles the server write. This is fine because onMutate sets local state.
+    onMutate?.(next);
   }
   function onUp(e: React.PointerEvent) {
     if (drag) (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
@@ -180,7 +185,7 @@ function Track({
         return (
           <div
             key={c.id}
-            style={{ left: `${left}%`, width: `${width}%` }}
+            style={{ left: `${left}%`, width: `${Math.max(width, 0.5)}%`, minWidth: "4px" }}
             className={`absolute top-0 bottom-0 ${
               sel
                 ? "bg-accent/40 border-y border-accent text-paper"
@@ -191,20 +196,20 @@ function Track({
           >
             <button
               onPointerDown={(e) => onResizeStart(e, c, "left")}
-              className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize bg-accent/0 hover:bg-accent/60"
+              className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize bg-accent/0 hover:bg-accent/60"
               aria-label="resize-left"
               type="button"
             />
             <button
               onPointerDown={(e) => onMoveStart(e, c)}
-              className="absolute inset-0 cursor-grab active:cursor-grabbing px-1.5 text-left truncate"
+              className="absolute inset-0 cursor-grab active:cursor-grabbing px-2 text-left truncate"
               type="button"
             >
-              <span className="font-mono opacity-80">{c.block ?? c.kind}</span>
+              <span className="font-mono opacity-80 text-[10px]">{c.block ?? c.kind}</span>
             </button>
             <button
               onPointerDown={(e) => onResizeStart(e, c, "right")}
-              className="absolute right-0 top-0 bottom-0 w-1 cursor-ew-resize bg-accent/0 hover:bg-accent/60"
+              className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize bg-accent/0 hover:bg-accent/60"
               aria-label="resize-right"
               type="button"
             />

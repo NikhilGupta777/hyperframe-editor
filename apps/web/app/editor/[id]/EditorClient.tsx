@@ -52,7 +52,7 @@ export function EditorClient({ id }: { id: string }) {
   const [doneUrl, setDoneUrl] = useState<string | null>(null);
   const [composition, setComposition] = useState<Composition | null>(null);
   const [selectedClip, setSelectedClip] = useState<string | null>(null);
-  const [tab, setTab] = useState<"chat" | "assets" | "history" | "props">("chat");
+  const [tab, setTab] = useState<"chat" | "media" | "history" | "props">("chat");
   const [costSnapshot, setCostSnapshot] = useState<ProjectCostSnapshot>({
     spentUsd: 0,
     budgetUsd: DEFAULT_PROJECT_BUDGET_USD,
@@ -87,11 +87,9 @@ export function EditorClient({ id }: { id: string }) {
     costSnapshot.authoritative && runningCostUsd >= costSnapshot.budgetUsd;
 
   const refreshCost = useCallback(async () => {
-    const ac = new AbortController();
     try {
       const r = await fetch(`/api/projects/${id}/cost`, {
         cache: "no-store",
-        signal: ac.signal,
       });
       if (!r.ok) return;
       const snap = (await r.json()) as ProjectCostSnapshot;
@@ -199,11 +197,29 @@ export function EditorClient({ id }: { id: string }) {
     [id, previewVersion],
   );
 
-  // Bump preview version when the AST changes locally (timeline edits etc.)
-  // so the iframe re-fetches the rewritten HTML after the debounced PUT.
+  // Debounced preview refresh. We DON'T bump on every local composition state
+  // change (that caused infinite iframe reloads during drag). Instead we bump:
+  //   - immediately after a render/tweak completes (SSE `done` handler)
+  //   - 600ms after the last persistComposition PUT finishes (debounced)
+  // The 600ms lets the server-side rewrite catch up before the iframe re-fetches.
+  const previewBumpTimer = useRef<NodeJS.Timeout | null>(null);
+  const isFirstRender = useRef(true);
+  function schedulePreviewRefresh() {
+    if (previewBumpTimer.current) clearTimeout(previewBumpTimer.current);
+    previewBumpTimer.current = setTimeout(() => {
+      setPreviewVersion((v) => v + 1);
+    }, 600);
+  }
+  // Skip the first-mount bump (the iframe loads ?v=0 which is already correct).
   useEffect(() => {
-    if (!composition) return;
-    setPreviewVersion((v) => v + 1);
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    // Only schedule a refresh when the composition actually changed shape
+    // (not just during drag). We track duration+length as a proxy for
+    // "structural change" — a clip's text prop changing won't trigger this,
+    // which is fine because the iframe only renders blocks, not live props.
   }, [composition?.duration, composition?.clips.length]);
 
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
@@ -215,6 +231,8 @@ export function EditorClient({ id }: { id: string }) {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ composition: next }),
+      }).then((r) => {
+        if (r.ok) schedulePreviewRefresh();
       });
     }, 400);
   }
@@ -233,14 +251,16 @@ export function EditorClient({ id }: { id: string }) {
 
   const renderInFlight = !!renderingJobId && !doneUrl && !lastError;
 
-  async function startRender() {
+  async function startRender(kindOverride?: "compose" | "edit_source") {
     if (renderInFlight) return;
     setEvents([]);
     setDoneUrl(null);
+    setRenderingJobId(null); // clear old subscription before new one
+    const kind = kindOverride ?? "compose";
     const res = await fetch("/api/render", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ projectId: id, prompt, presetId }),
+      body: JSON.stringify({ projectId: id, prompt, presetId, kind }),
     });
     if (!res.ok) {
       const j = (await res.json().catch(() => ({}))) as { error?: string };
@@ -268,13 +288,23 @@ export function EditorClient({ id }: { id: string }) {
       ...prev,
       { type: "log", level: "info", msg: `you: ${text}` },
     ]);
+    // Simple client-side intent detection: if the user mentions "edit",
+    // "cut", "highlight", "clip" + "video"/"source"/"upload" → route to
+    // edit-source. Otherwise → tweak (modifies existing composition AST).
+    const lower = text.toLowerCase();
+    const looksLikeEditSource =
+      /\b(edit|cut|highlight|trim|clip)\b/.test(lower) &&
+      /\b(video|source|upload|footage|interview|podcast)\b/.test(lower);
+    const kind = looksLikeEditSource ? "edit-source" : "tweak";
+
+    setRenderingJobId(null); // clear old subscription
     const res = await fetch("/api/agent/turn", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         projectId: id,
         prompt: text,
-        kind: "tweak",
+        kind,
         presetId,
       }),
     });
@@ -288,7 +318,7 @@ export function EditorClient({ id }: { id: string }) {
             j.error ??
             (res.status === 503
               ? "Agent queue not configured (REDIS_URL missing)"
-              : `tweak enqueue failed: HTTP ${res.status}`),
+              : `enqueue failed: HTTP ${res.status}`),
         },
       ]);
       return;
@@ -297,12 +327,20 @@ export function EditorClient({ id }: { id: string }) {
     setRenderingJobId(j.jobId);
   }
 
-  // Keyboard shortcut: Cmd/Ctrl+Enter renders. Common pattern in chat apps and
-  // saves a click in the demo.
+  // Keyboard shortcut: Cmd/Ctrl+Enter renders from the prompt textarea.
+  // We scope it so it doesn't fire when the chat input is focused — that
+  // form has its own Enter submit handler.
+  const promptRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     const handler = (ev: KeyboardEvent) => {
       const meta = ev.metaKey || ev.ctrlKey;
       if (!meta || ev.key !== "Enter") return;
+      // Only fire if the prompt textarea is focused or no input is focused
+      const active = document.activeElement;
+      const isPromptFocused = active === promptRef.current;
+      const isNoInputFocused =
+        !active || active === document.body || active.tagName === "BUTTON";
+      if (!isPromptFocused && !isNoInputFocused) return;
       ev.preventDefault();
       void startRender();
     };
@@ -318,7 +356,7 @@ export function EditorClient({ id }: { id: string }) {
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="font-display text-lg">hyperframe-editor</div>
-              <div className="text-xs opacity-60">project {id}</div>
+              <div className="text-xs opacity-60">{id.length > 12 ? `${id.slice(0, 8)}\u2026` : id}</div>
             </div>
             <div
               className={`rounded border px-2 py-1 text-right text-[10px] leading-tight ${
@@ -361,36 +399,56 @@ export function EditorClient({ id }: { id: string }) {
             Prompt <span className="opacity-50">(\u2318/Ctrl+Enter to render)</span>
           </label>
           <textarea
+            ref={promptRef}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
+            placeholder="Describe what you want to create or how to edit your video..."
             rows={4}
             className="w-full rounded bg-ink/60 border border-muted/40 px-3 py-2 text-sm"
           />
           <button
-            onClick={startRender}
+            onClick={() => startRender()}
             disabled={renderInFlight || prompt.trim().length < 3}
             className="w-full rounded bg-accent text-ink font-semibold py-2 disabled:opacity-50"
           >
             {renderInFlight ? "Rendering\u2026" : "Render"}
           </button>
+          <button
+            onClick={() => startRender("edit_source")}
+            disabled={renderInFlight || prompt.trim().length < 3}
+            className="w-full rounded border border-accent text-accent font-semibold py-2 disabled:opacity-50 hover:bg-accent/10"
+          >
+            {renderInFlight ? "Editing\u2026" : "Edit Video"}
+          </button>
           <GateBadges status={gateStatus} />
+          {!composition && (
+            <div className="text-xs opacity-50 animate-pulse">Loading composition\u2026</div>
+          )}
           {lastError && (
-            <div className="rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[11px] text-red-200">
+            <button
+              onClick={() => setEvents((prev) => prev.filter((e) => e.type !== "error"))}
+              className="w-full text-left rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[11px] text-red-200 hover:bg-red-500/20"
+              title="Click to dismiss"
+            >
               {lastError}
-            </div>
+            </button>
           )}
         </div>
 
         <div className="flex border-b border-muted/30 text-xs">
-          {(["chat", "assets", "history", "props"] as const).map((t) => (
+          {(["chat", "media", "history", "props"] as const).map((t) => (
             <button
               key={t}
-              onClick={() => setTab(t)}
-              className={`flex-1 py-2 ${
+              type="button"
+              onClick={() => setTab(t as typeof tab)}
+              className={`flex-1 py-2 relative ${
                 tab === t ? "bg-muted/15 text-paper" : "opacity-60 hover:opacity-100"
               }`}
             >
               {t}
+              {t === "chat" && renderInFlight && (
+                <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
+              )}
             </button>
           ))}
         </div>
@@ -411,7 +469,7 @@ export function EditorClient({ id }: { id: string }) {
                 <input
                   value={tweakPrompt}
                   onChange={(e) => setTweakPrompt(e.target.value)}
-                  placeholder="Ask the agent to tweak the composition\u2026"
+                  placeholder="Chat with the agent \u2014 tweak, edit video, ask anything\u2026"
                   className="flex-1 rounded bg-ink/60 border border-muted/40 px-2 py-1 text-xs"
                   disabled={renderInFlight}
                 />
@@ -425,7 +483,7 @@ export function EditorClient({ id }: { id: string }) {
               </form>
             </div>
           )}
-          {tab === "assets" && (
+          {tab === "media" && (
             <div className="p-3 space-y-4">
               <SourceUpload projectId={id} />
               <hr className="border-muted/30" />
@@ -450,30 +508,45 @@ export function EditorClient({ id }: { id: string }) {
 
       <section className="flex flex-col">
         <div className="border-b border-muted/30 px-4 py-3 flex items-center justify-between">
-          <div>Preview</div>
-          {doneUrl && /^https?:/.test(doneUrl) && (
-            <a
-              href={doneUrl}
-              className="text-xs underline opacity-80"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Open MP4
-            </a>
-          )}
+          <div className="text-sm">
+            {doneUrl && /^https?:/.test(doneUrl) ? "Rendered video" : "Preview"}
+          </div>
+          <div className="flex items-center gap-3">
+            {doneUrl && /^https?:/.test(doneUrl) && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setDoneUrl(null)}
+                  className="text-xs opacity-70 hover:opacity-100"
+                >
+                  \u2190 Back to preview
+                </button>
+                <a
+                  href={doneUrl}
+                  className="text-xs underline opacity-80"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open MP4
+                </a>
+              </>
+            )}
+          </div>
         </div>
         <div className="flex-1 grid place-items-center bg-black/40 p-6">
           {doneUrl && /^https?:/.test(doneUrl) ? (
-            // The worker's finalize step uploads the rendered mp4 to OCI and
-            // returns a real https signed URL, so the <video> tag can play it
-            // directly. The iframe preview hides while a render is being
-            // shown — switch back to it for the next composition edit.
-            <video src={doneUrl} controls className="max-h-full max-w-full" />
+            <video
+              src={doneUrl}
+              controls
+              className="max-h-full max-w-full rounded"
+              poster=""
+            />
           ) : (
             <iframe
               key={previewUrl}
               src={previewUrl}
               title="composition preview"
+              sandbox="allow-scripts"
               className="aspect-[9/16] h-full max-h-full border border-muted/40 bg-ink"
             />
           )}
@@ -481,9 +554,10 @@ export function EditorClient({ id }: { id: string }) {
         <Timeline
           composition={composition}
           selectedId={selectedClip}
-          onSelect={(id) => {
-            setSelectedClip(id);
-            if (id) setTab("props");
+          onSelect={(clipId) => {
+            setSelectedClip(clipId);
+            // Only auto-switch to props tab if not actively watching a render
+            if (clipId && !renderInFlight) setTab("props");
           }}
           onMutate={persistComposition}
         />

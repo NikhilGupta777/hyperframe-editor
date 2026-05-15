@@ -72,9 +72,10 @@ export function StockSearch() {
         />
         <button
           onClick={search}
-          className="rounded bg-accent text-ink px-2 py-1 font-semibold"
+          disabled={loading || !q.trim()}
+          className="rounded bg-accent text-ink px-2 py-1 font-semibold disabled:opacity-50"
         >
-          go
+          {loading ? "\u2026" : "go"}
         </button>
       </div>
       {missingKey && (
@@ -99,6 +100,9 @@ export function StockSearch() {
           </a>
         ))}
         {loading && <div className="opacity-60 col-span-3 py-4 text-center">searching…</div>}
+        {!loading && hits.length === 0 && q.trim() && (
+          <div className="opacity-50 col-span-3 py-2 text-center">No results. Try a different query.</div>
+        )}
       </div>
     </div>
   );

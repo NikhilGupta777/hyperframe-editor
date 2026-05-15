@@ -26,6 +26,7 @@ export function SourceUpload({ projectId }: { projectId: string }) {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -115,6 +116,7 @@ export function SourceUpload({ projectId }: { projectId: string }) {
 
   function onDrop(e: React.DragEvent) {
     e.preventDefault();
+    setDragOver(false);
     const file = e.dataTransfer.files[0];
     if (file) void handleFile(file);
   }
@@ -126,12 +128,16 @@ export function SourceUpload({ projectId }: { projectId: string }) {
       </div>
       <div
         onDrop={onDrop}
-        onDragOver={(e) => e.preventDefault()}
-        className="rounded border-2 border-dashed border-muted/40 p-4 text-center hover:border-accent/50 transition-colors"
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        className={`rounded border-2 border-dashed p-4 text-center transition-colors ${
+          dragOver ? "border-accent bg-accent/5" : "border-muted/40 hover:border-accent/50"
+        }`}
       >
         <div className="opacity-70 mb-2">
           Drop a video, audio, or image file here
         </div>
+        <div className="text-[10px] opacity-50 mb-2">Max recommended: 500 MB</div>
         <input
           ref={fileRef}
           type="file"

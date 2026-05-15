@@ -61,7 +61,11 @@ export function PropsPanel({ composition, selectedId, onChange, onDelete }: Prop
         </div>
         {onDelete && (
           <button
-            onClick={() => onDelete(clip.id)}
+            onClick={() => {
+              if (window.confirm(`Delete clip "${clip.id}"?`)) {
+                onDelete(clip.id);
+              }
+            }}
             className="text-red-300 hover:text-red-200 text-[11px]"
           >
             delete
@@ -124,6 +128,12 @@ export function PropsPanel({ composition, selectedId, onChange, onDelete }: Prop
                   step={0.1}
                 />
               </Field>
+            ) : v != null ? (
+              <Field key={k} label={k}>
+                <div className="rounded bg-ink/60 border border-muted/40 px-2 py-1 opacity-60 font-mono text-[10px] max-h-16 overflow-auto whitespace-pre-wrap">
+                  {JSON.stringify(v, null, 1)}
+                </div>
+              </Field>
             ) : null,
           )}
         </div>
@@ -155,12 +165,18 @@ function NumberInput({
   return (
     <input
       type="number"
-      value={value}
+      defaultValue={value}
+      key={value} // reset when external value changes (e.g. undo)
       min={min}
       step={step ?? 0.1}
-      onChange={(e) => {
+      onBlur={(e) => {
         const n = Number(e.target.value);
-        if (!Number.isNaN(n)) onChange(n);
+        if (!Number.isNaN(n) && n !== value) onChange(n);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          (e.target as HTMLInputElement).blur();
+        }
       }}
       className="w-full rounded bg-ink/60 border border-muted/40 px-2 py-1"
     />

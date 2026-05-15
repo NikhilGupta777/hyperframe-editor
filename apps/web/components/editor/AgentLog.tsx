@@ -44,19 +44,41 @@ export function AgentLog({ events }: { events: AgentEvent[] }) {
   }
 
   if (events.length === 0) {
-    return <div className="opacity-50">Agent stream appears here.</div>;
+    return <div className="opacity-50 text-xs">Render progress and agent messages appear here when you click Render or send a chat message.</div>;
   }
+
+  // Collapse consecutive progress events — only show the last one as a bar
+  const collapsed = collapseProgress(events);
+
   return (
     <div
       ref={scrollRef}
       onScroll={onScroll}
       className="space-y-1 overflow-auto pr-1"
     >
-      {events.map((e, i) => (
+      {collapsed.map((e, i) => (
         <Row key={i} e={e} />
       ))}
     </div>
   );
+}
+
+/**
+ * Collapse consecutive progress events into a single entry (the latest one).
+ * Without this, each progress tick (10%, 25%, 50%...) renders its own row
+ * with its own progress bar, creating a visually noisy stack of bars.
+ */
+function collapseProgress(events: AgentEvent[]): AgentEvent[] {
+  const out: AgentEvent[] = [];
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i]!;
+    if (e.type === "progress") {
+      // Look ahead: if the next event is also progress, skip this one.
+      if (i + 1 < events.length && events[i + 1]!.type === "progress") continue;
+    }
+    out.push(e);
+  }
+  return out;
 }
 
 function Row({ e }: { e: AgentEvent }): ReactNode {
@@ -110,7 +132,7 @@ function Row({ e }: { e: AgentEvent }): ReactNode {
     return (
       <div className="text-emerald-300 font-semibold">
         done.
-        {e.url && (
+        {e.url && /^https?:/.test(e.url) && (
           <>
             {" "}
             <a
