@@ -24,13 +24,28 @@ const Body = z.object({
  * /api/render/:id/stream which the chat client subscribes to as soon as it has
  * the jobId in hand. This keeps the route handler short-lived (good for Vercel)
  * and lets multiple browsers tail the same job.
+ *
+ * Like /api/render, this route returns a hard 503 when REDIS_URL is unset. The
+ * mock fallback has been removed.
  */
 export async function POST(req: Request) {
+  if (!process.env.REDIS_URL) {
+    return NextResponse.json(
+      {
+        error:
+          "Agent queue is not configured. Set REDIS_URL on the web deployment and ensure a worker is running against the same Redis.",
+      },
+      { status: 503 },
+    );
+  }
+
   const parsed = await readJson(req, Body);
   if (parsed instanceof NextResponse) return parsed;
 
   const jobId = randomUUID();
   const inputKind = parsed.kind ?? "build";
+  // The worker uses underscored names ("edit_source") on the queue while the
+  // editor's chat UI sends hyphenated ("edit-source"). Normalise here.
   const kind = inputKind === "edit-source" ? "edit_source" : inputKind;
   const presetId = parsed.presetId ?? "tiktok-hook";
   const job = {
@@ -40,13 +55,8 @@ export async function POST(req: Request) {
     payload: { prompt: parsed.prompt, presetId },
   };
 
-  if (process.env.REDIS_URL) {
-    const { enqueueJob } = await import("@hyperframe-editor/queue");
-    await enqueueJob(job);
-  } else {
-    const { mockEnqueue } = await import("../../render/mock-stream.js");
-    mockEnqueue({ jobId, payload: { prompt: parsed.prompt, presetId } });
-  }
+  const { enqueueJob } = await import("@hyperframe-editor/queue");
+  await enqueueJob(job);
 
   return NextResponse.json({ jobId });
 }

@@ -42,3 +42,4 @@ jobs:
       - run: pnpm --filter @hyperframe-editor/worker smoke:concat
       - run: pnpm --filter @hyperframe-editor/worker smoke:composition
       - run: pnpm --filter @hyperframe-editor/worker smoke:acquire
+      - run: pnpm --filter @hyperframe-editor/web smoke:rewrite
