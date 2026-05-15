@@ -2,7 +2,7 @@
 
 An AI-native video-editor agent. You drop in raw footage (or just a prompt), pick a preset, and the agent watches/listens to your video, plans a timeline, fetches B-roll, generates motion graphics, writes captions, renders, and hands you back a polished MP4. You can chat with it to revise, or open the timeline and edit manually.
 
-**Status:** planning. Code lands after the plan is reviewed.
+**Status:** Phase 1 in progress. Monorepo skeleton complete, DB schema applied, editor UI functional, worker orchestrator implemented with 8 quality gates, 14 smoke tests passing in CI.
 
 ## Stack at a glance
 
