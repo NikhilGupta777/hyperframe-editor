@@ -35,7 +35,6 @@
     "@hyperframe-editor/storage": "workspace:*",
     "drizzle-orm": "^0.36.4",
     "execa": "^9.5.2",
-    "linkedom": "^0.18.12",
     "zod": "^3.24.1"
   },
   "devDependencies": {

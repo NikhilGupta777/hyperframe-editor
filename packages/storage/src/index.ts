@@ -138,11 +138,22 @@ export class Storage {
     return this.signDownloadUrl(key, ttlSec);
   }
 
-  /** Parse oci://bucket/key/path back into its parts. */
+  /**
+   * Parse oci://bucket/key/path back into its parts. Throws when the URI's
+   * bucket doesn't match the configured one — silently reading from a
+   * different bucket would mask config errors and surface as 404s downstream.
+   */
   parseUri(uri: string): { bucket: string; key: string } {
     const m = uri.match(/^oci:\/\/([^/]+)\/(.+)$/);
     if (!m) throw new Error(`Not an oci:// URI: ${uri}`);
-    return { bucket: m[1]!, key: m[2]! };
+    const bucket = m[1]!;
+    const key = m[2]!;
+    if (bucket !== this.bucket) {
+      throw new Error(
+        `oci:// bucket mismatch: uri is "${bucket}" but Storage is configured for "${this.bucket}"`,
+      );
+    }
+    return { bucket, key };
   }
 }
 

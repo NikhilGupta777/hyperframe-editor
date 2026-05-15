@@ -168,6 +168,13 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
     }
 
     // ---- PREFLIGHT --------------------------------------------------------
+    // Two failure modes here:
+    //   * dryRender failed (composition won't build) — fatal, abort the run.
+    //   * budget would exceed cap — also fatal; we can't proceed in good
+    //     conscience after the user explicitly capped spend. Soft-fail
+    //     behaviour was hiding overspend bugs in earlier waves.
+    // Either way we surface the reason to the SSE stream first so the editor
+    // shows an explanation instead of a blank "error" toast.
     await publishEvent(job.jobId, { type: "step", step: "PREFLIGHT", status: "running" });
     try {
       const pre = await preflight({
@@ -182,11 +189,13 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
         msg: `preflight: dry=${pre.dryMs}ms, est $${pre.estimateUsd.toFixed(4)}, remaining $${pre.remainingUsd.toFixed(4)}`,
       });
     } catch (e) {
+      const message = (e as Error).message;
       await publishEvent(job.jobId, {
         type: "log",
-        level: "warn",
-        msg: `preflight: ${(e as Error).message}`,
+        level: "error",
+        msg: `preflight: ${message}`,
       });
+      throw new Error(`preflight failed: ${message}`);
     }
 
     // ---- RENDER + GATES ----------------------------------------------------

@@ -14,7 +14,24 @@ interface PersistComposition {
   save(projectId: string, composition: Composition, html: string): Promise<void>;
 }
 
+/**
+ * In-process composition cache used when STORAGE_BUCKET isn't set (smoke
+ * tests, local dev). Capped at MAX_INMEMORY entries with LRU eviction so a
+ * long-running worker handling thousands of jobs doesn't drift toward OOM.
+ */
+const MAX_INMEMORY = 256;
 const inMemory = new Map<string, { composition: Composition; html: string }>();
+function touchInMemory(projectId: string, value: { composition: Composition; html: string }): void {
+  // Re-insert to move to most-recent end of the Map's iteration order, then
+  // drop the oldest entries until under the cap.
+  if (inMemory.has(projectId)) inMemory.delete(projectId);
+  inMemory.set(projectId, value);
+  while (inMemory.size > MAX_INMEMORY) {
+    const oldest = inMemory.keys().next().value;
+    if (oldest === undefined) break;
+    inMemory.delete(oldest);
+  }
+}
 
 async function loadFromStorageIfAvailable(projectId: string): Promise<Composition | null> {
   if (!process.env.STORAGE_BUCKET) return null;
@@ -59,7 +76,7 @@ export const persistComposition: PersistComposition = {
     throw new Error(`No composition snapshot for project ${projectId}`);
   },
   async save(projectId, composition, html) {
-    inMemory.set(projectId, { composition, html });
+    touchInMemory(projectId, { composition, html });
     await saveToStorageIfAvailable(projectId, composition, html);
   },
 };

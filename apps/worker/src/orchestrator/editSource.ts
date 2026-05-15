@@ -55,6 +55,9 @@ interface EditSourcePayload {
   language?: string;
   /** Burn captions into the composition? Default: true. */
   captions?: boolean;
+  /** Project budget in USD; mirrors compose.ts so single-source clips can be capped too. */
+  budgetUsd?: number;
+  spentUsd?: number;
 }
 
 interface StagedSource {
@@ -163,7 +166,12 @@ export async function runEditSourceLoop(job: QueuedJob): Promise<void> {
 
     // ---- CONCAT cuts with ffmpeg ---------------------------------------------
     await publishEvent(job.jobId, { type: "step", step: "CONCAT_CUTS", status: "running" });
-    const cutMp4 = join(workDir, "cuts.mp4");
+    // Write into the workDir's assets/ folder so the resulting AssetRef can use
+    // a stable relative path that survives serialization. Composition.json is
+    // shipped to the editor preview iframe, where /tmp/... paths from the
+    // worker process are obviously unresolvable.
+    const cutMp4 = join(workDir, "assets", "cuts.mp4");
+    const cutAssetSrc = "assets/cuts.mp4";
     const idToPath = new Map(staged.map((s) => [s.id, s.localPath]));
     await concatCuts(
       edl.entries.map((e) => ({
@@ -200,7 +208,7 @@ export async function runEditSourceLoop(job: QueuedJob): Promise<void> {
 
     // ---- COMPOSE_OVER_EDL ---------------------------------------------------
     await publishEvent(job.jobId, { type: "step", step: "COMPOSE_OVER_EDL", status: "running" });
-    const composition = composeOverEDL(cutMp4, cutProbe.durationSec, preset, job.projectId, captionLines);
+    const composition = composeOverEDL(cutAssetSrc, cutProbe.durationSec, preset, job.projectId, captionLines);
 
     // ---- LINT --------------------------------------------------------------
     await publishEvent(job.jobId, { type: "step", step: "LINT", status: "running" });
@@ -386,9 +394,12 @@ function mergeTranscriptForEDL(
 /**
  * Build a composition that wraps the already-cut MP4 as a single video clip on
  * track 0, and (optionally) layers caption blocks on track 1.
+ *
+ * `cutSrc` is a project-relative path (e.g. `assets/cuts.mp4`) so the
+ * composition.json the editor consumes never bakes in a /tmp absolute path.
  */
 function composeOverEDL(
-  cutMp4: string,
+  cutSrc: string,
   cutDuration: number,
   preset: ReturnType<typeof getPreset>,
   projectId: string,
@@ -402,7 +413,7 @@ function composeOverEDL(
       start: 0,
       duration: cutDuration,
       playbackOffset: 0,
-      props: { src: cutMp4 },
+      props: { src: cutSrc },
     },
   ];
   if (captions.length > 0) {
@@ -424,7 +435,7 @@ function composeOverEDL(
     id: projectId,
     canvas: preset.canvas,
     duration: 0,
-    assets: [{ id: "main", kind: "video", src: cutMp4 }],
+    assets: [{ id: "main", kind: "video", src: cutSrc }],
     clips,
     variables: {},
   };

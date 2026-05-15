@@ -2,11 +2,20 @@
  * G1 — every asset referenced by the composition must be reachable.
  *
  * Walks the AST and any explicit `assets[]` entries. For local paths we stat
- * the file. For oci:// we HEAD the bucket key. For https:// we issue a HEAD
- * request — if the asset is meant to be vendored before render we expect this
- * to be a fail until the orchestrator downloads it.
+ * the file; for `oci://` we HEAD the bucket key; for `https://` we issue a
+ * HEAD request — if the asset is meant to be vendored before render we expect
+ * this to be a fail until the orchestrator downloads it.
+ *
+ * Path resolution:
+ *   Compositions reference assets with paths relative to the composition.html
+ *   (e.g. `assets/cuts.mp4`). Earlier we resolved these against
+ *   `process.cwd()`, which silently broke whenever the worker ran from a
+ *   different directory than the composition's workDir. We now resolve
+ *   relative paths against `dirname(htmlPath)` so the gate's view of the
+ *   filesystem matches the renderer's.
  */
 import { promises as fs } from "node:fs";
+import { dirname, isAbsolute, resolve } from "node:path";
 import type { GateContext } from "./runner.js";
 import type { GateResult } from "@hyperframe-editor/core";
 
@@ -18,6 +27,7 @@ interface Issue {
 export async function gateG1(ctx: GateContext): Promise<Omit<GateResult, "id" | "severity">> {
   const refs = collectAssetRefs(ctx.composition);
   const missing: Issue[] = [];
+  const baseDir = ctx.htmlPath ? dirname(ctx.htmlPath) : process.cwd();
 
   for (const ref of refs) {
     if (ref.startsWith("oci://")) {
@@ -41,22 +51,28 @@ export async function gateG1(ctx: GateContext): Promise<Omit<GateResult, "id" | 
       }
       continue;
     }
-    // local relative path
+    // file:// or local path. Resolve relative paths against the composition's
+    // directory so they line up with what the renderer would see.
+    const localPath = ref.startsWith("file://")
+      ? ref.replace(/^file:\/\//, "")
+      : isAbsolute(ref)
+        ? ref
+        : resolve(baseDir, ref);
     try {
-      await fs.access(ref);
+      await fs.access(localPath);
     } catch {
-      missing.push({ ref, reason: "local file not found" });
+      missing.push({ ref, reason: `local file not found at ${localPath}` });
     }
   }
 
   if (missing.length > 0) {
     return {
       pass: false,
-      details: { missing },
+      details: { missing, baseDir },
       fix: "re-fetch / regenerate the missing assets before render",
     };
   }
-  return { pass: true, details: { checked: refs.length } };
+  return { pass: true, details: { checked: refs.length, baseDir } };
 }
 
 function collectAssetRefs(c: GateContext["composition"]): string[] {
