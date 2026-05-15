@@ -15,11 +15,9 @@ interface ProjectRow {
 
 /**
  * Home page. Lists the demo user's projects, lets them open one or create a
- * new one. Falls back to the static "open the demo editor" affordance when no
- * DB is configured (Vercel preview without infra).
- *
- * The "demo" project remains as a deep link for the legacy share URL we've
- * pasted in docs.
+ * new one. The legacy `/editor/demo` deep link has been removed — there is
+ * no special "demo" project; any project the user creates flows through the
+ * same real worker.
  */
 export default function Home() {
   const router = useRouter();
@@ -27,6 +25,7 @@ export default function Home() {
   const [title, setTitle] = useState("Untitled project");
   const [preset, setPreset] = useState("tiktok-hook");
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const presetOptions = Object.values(PRESETS);
 
   useEffect(() => {
@@ -49,15 +48,22 @@ export default function Home() {
   async function createProject() {
     if (creating) return;
     setCreating(true);
+    setCreateError(null);
     try {
       const r = await fetch("/api/projects", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ title, preset }),
       });
-      if (!r.ok) return;
+      if (!r.ok) {
+        const j = (await r.json().catch(() => ({}))) as { error?: string };
+        setCreateError(j.error ?? `HTTP ${r.status}`);
+        return;
+      }
       const j = (await r.json()) as { project?: ProjectRow };
       if (j.project?.id) router.push(`/editor/${j.project.id}`);
+    } catch (e) {
+      setCreateError((e as Error).message);
     } finally {
       setCreating(false);
     }
@@ -100,13 +106,11 @@ export default function Home() {
             {creating ? "Creating\u2026" : "Create"}
           </button>
         </div>
-        <div className="mt-3 text-xs opacity-60">
-          Or jump straight to the{" "}
-          <Link href="/editor/demo" className="underline">
-            demo editor
-          </Link>
-          .
-        </div>
+        {createError && (
+          <div className="mt-3 rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[11px] text-red-200">
+            {createError}
+          </div>
+        )}
       </section>
 
       <section className="mt-8">

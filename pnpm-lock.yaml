@@ -38,6 +38,12 @@ importers:
       '@hyperframe-editor/storage':
         specifier: workspace:*
         version: link:../../packages/storage
+      '@hyperframes/core':
+        specifier: 0.6.6
+        version: 0.6.6(hono@4.12.18)
+      mime-types:
+        specifier: ^2.1.35
+        version: 2.1.35
       next:
         specifier: ^15.1.4
         version: 15.5.18(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -54,6 +60,9 @@ importers:
         specifier: ^5.0.2
         version: 5.0.13(@types/react@19.2.14)(react@19.2.6)
     devDependencies:
+      '@types/mime-types':
+        specifier: ^2.1.4
+        version: 2.1.4
       '@types/node':
         specifier: ^22.10.5
         version: 22.19.19
