@@ -1,15 +1,22 @@
 /**
- * Object storage adapter. OCI Object Storage exposes an S3-compatible endpoint, so we
- * use the AWS SDK v3 with a custom endpoint. Same code works against MinIO in dev and
- * Cloudflare R2 if we ever flip the cloud-fallback flag.
+ * S3-compatible object storage adapter.
  *
- * Env vars (all required at runtime):
- *   STORAGE_ENDPOINT      e.g. https://<namespace>.compat.objectstorage.<region>.oraclecloud.com
- *   STORAGE_REGION        e.g. us-ashburn-1 (must match the endpoint region for SigV4)
- *   STORAGE_ACCESS_KEY_ID
- *   STORAGE_SECRET_ACCESS_KEY
- *   STORAGE_BUCKET        bucket name
- *   STORAGE_PUBLIC_BASE_URL (optional) — if set, getPublicUrl() returns clean URLs
+ * Works with:
+ *   - AWS S3 (default, no custom endpoint needed)
+ *   - OCI Object Storage (set STORAGE_ENDPOINT to compat endpoint)
+ *   - Cloudflare R2 (set STORAGE_ENDPOINT to R2 endpoint)
+ *   - MinIO (set STORAGE_ENDPOINT to your MinIO URL)
+ *
+ * Env vars:
+ *   STORAGE_BUCKET              (required) bucket name
+ *   STORAGE_REGION              (required) e.g. us-east-1
+ *   STORAGE_ACCESS_KEY_ID       (required) AWS access key
+ *   STORAGE_SECRET_ACCESS_KEY   (required) AWS secret key
+ *   STORAGE_ENDPOINT            (optional) custom S3-compatible endpoint URL.
+ *                               Omit for real AWS S3 — SDK infers from region.
+ *   STORAGE_FORCE_PATH_STYLE    (optional) set "true" for MinIO/OCI/R2.
+ *                               AWS S3 uses virtual-hosted style by default.
+ *   STORAGE_PUBLIC_BASE_URL     (optional) if set, getUrl() returns clean CDN URLs
  */
 import {
   S3Client,
@@ -22,11 +29,12 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Readable } from "node:stream";
 
 export interface StorageConfig {
-  endpoint: string;
+  endpoint?: string;
   region: string;
   accessKeyId: string;
   secretAccessKey: string;
   bucket: string;
+  forcePathStyle?: boolean;
   publicBaseUrl?: string;
 }
 
@@ -37,11 +45,12 @@ export function configFromEnv(): StorageConfig {
     return v;
   };
   return {
-    endpoint: required("STORAGE_ENDPOINT"),
+    endpoint: process.env.STORAGE_ENDPOINT || undefined,
     region: required("STORAGE_REGION"),
     accessKeyId: required("STORAGE_ACCESS_KEY_ID"),
     secretAccessKey: required("STORAGE_SECRET_ACCESS_KEY"),
     bucket: required("STORAGE_BUCKET"),
+    forcePathStyle: process.env.STORAGE_FORCE_PATH_STYLE === "true",
     publicBaseUrl: process.env.STORAGE_PUBLIC_BASE_URL,
   };
 }
@@ -55,19 +64,18 @@ export class Storage {
     this.bucket = cfg.bucket;
     this.publicBaseUrl = cfg.publicBaseUrl;
     this.client = new S3Client({
-      endpoint: cfg.endpoint,
+      ...(cfg.endpoint ? { endpoint: cfg.endpoint } : {}),
       region: cfg.region,
       credentials: {
         accessKeyId: cfg.accessKeyId,
         secretAccessKey: cfg.secretAccessKey,
       },
-      // OCI requires path-style addressing; bucket-virtual-hosted-style won't work.
-      forcePathStyle: true,
+      forcePathStyle: cfg.forcePathStyle ?? false,
     });
   }
 
   /**
-   * Uploads bytes (Buffer / string / stream) to a key. Returns the canonical oci:// URI.
+   * Uploads bytes (Buffer / string / stream) to a key. Returns the canonical s3:// URI.
    */
   async putObject(
     key: string,
@@ -82,7 +90,7 @@ export class Storage {
         ContentType: contentType,
       }),
     );
-    return `oci://${this.bucket}/${key}`;
+    return `s3://${this.bucket}/${key}`;
   }
 
   /** Fetches an object as a Buffer. Use for small artifacts (compositions, JSON reports). */
@@ -139,18 +147,19 @@ export class Storage {
   }
 
   /**
-   * Parse oci://bucket/key/path back into its parts. Throws when the URI's
-   * bucket doesn't match the configured one — silently reading from a
-   * different bucket would mask config errors and surface as 404s downstream.
+   * Parse s3://bucket/key/path back into its parts. Also accepts the legacy
+   * oci:// scheme for backward compat with existing DB rows.
+   *
+   * Throws when the URI's bucket doesn't match the configured one.
    */
   parseUri(uri: string): { bucket: string; key: string } {
-    const m = uri.match(/^oci:\/\/([^/]+)\/(.+)$/);
-    if (!m) throw new Error(`Not an oci:// URI: ${uri}`);
+    const m = uri.match(/^(?:s3|oci):\/\/([^/]+)\/(.+)$/);
+    if (!m) throw new Error(`Not an s3:// or oci:// URI: ${uri}`);
     const bucket = m[1]!;
     const key = m[2]!;
     if (bucket !== this.bucket) {
       throw new Error(
-        `oci:// bucket mismatch: uri is "${bucket}" but Storage is configured for "${this.bucket}"`,
+        `bucket mismatch: uri is "${bucket}" but Storage is configured for "${this.bucket}"`,
       );
     }
     return { bucket, key };

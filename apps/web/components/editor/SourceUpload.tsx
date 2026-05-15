@@ -95,7 +95,7 @@ export function SourceUpload({ projectId }: { projectId: string }) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          storageUri: `oci://${process.env.NEXT_PUBLIC_STORAGE_BUCKET ?? "bucket"}/${key}`,
+          storageUri: `s3://${process.env.NEXT_PUBLIC_STORAGE_BUCKET ?? "bucket"}/${key}`,
           kind,
         }),
       });

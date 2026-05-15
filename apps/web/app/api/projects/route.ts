@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     height: preset.canvas.height,
     fps: preset.canvas.fps,
     durationSec: 0,
-    storageUri: `oci://hf-projects/projects/${parsed.title.replace(/\s+/g, "-")}`,
+    storageUri: `s3://${process.env.STORAGE_BUCKET ?? "hf-projects"}/projects/${parsed.title.replace(/\s+/g, "-")}`,
     budgetUsd: 1,
     status: "draft" as const,
     createdAt: new Date().toISOString(),
