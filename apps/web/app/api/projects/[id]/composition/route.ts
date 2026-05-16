@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { readJson, serverError } from "@/lib/api";
-import { getOrBootstrapComposition, saveCompositionHtml } from "@/lib/composition";
+import {
+  getOrBootstrapComposition,
+  rewriteHtmlForBrowser,
+  saveCompositionHtml,
+} from "@/lib/composition";
 
 export const runtime = "nodejs";
 
@@ -15,11 +19,20 @@ export const runtime = "nodejs";
  * On first visit to a fresh project, the GET handler bootstraps a tiny
  * placeholder composition so the timeline + preview iframe always have
  * something to show before the first Render click.
+ *
+ * Browser rewrite:
+ *   The on-disk HTML uses the CDN form of the HyperFrames runtime and
+ *   relative `assets/...` paths (the format the worker's Chromium render
+ *   needs). Before serving to the editor iframe we swap the CDN runtime
+ *   for the same-origin `/api/preview/runtime.js` proxy and rewrite
+ *   `assets/foo.jpg` → `/api/projects/<id>/assets/foo.jpg`. The
+ *   composition.html artifact in storage is not modified.
  */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   try {
-    const { html, bootstrapped } = await getOrBootstrapComposition(id);
+    const { html: rawHtml, bootstrapped } = await getOrBootstrapComposition(id);
+    const html = rewriteHtmlForBrowser(rawHtml, id);
     return new Response(html, {
       headers: {
         "content-type": "text/html; charset=utf-8",

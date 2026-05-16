@@ -12,6 +12,17 @@
  *
  * The placeholder respects the project's preset when available (DB lookup),
  * falling back to TIKTOK_HOOK so the offline / unsigned flow still works.
+ *
+ * URL rewriting for browser consumption:
+ *   The on-disk composition.html (the artifact the worker also feeds to
+ *   Chromium) references assets relatively (`assets/foo.jpg`) and pulls
+ *   the HyperFrames runtime from a CDN. The editor's preview iframe is
+ *   served from a different origin and has no concept of `assets/foo.jpg`,
+ *   so the composition GET route applies `rewriteHtmlForBrowser` before
+ *   shipping bytes to the browser. The rewrite is purely additive — the
+ *   underlying file is untouched, so gate G7's "no off-origin fetch"
+ *   guarantee still holds when the worker renders the same composition
+ *   through Chromium.
  */
 import {
   type Composition,
@@ -221,4 +232,42 @@ export async function saveCompositionHtml(projectId: string, html: string): Prom
   // doesn't go stale relative to the new HTML. If none exists, we bootstrap.
   const existing = (await handles.loadJson()) ?? (await getOrBootstrapComposition(projectId)).composition;
   await handles.save(existing, html);
+}
+
+// ---------------------------------------------------------------------------
+// Browser-side URL rewriting
+// ---------------------------------------------------------------------------
+
+/**
+ * Patterns we substitute in the on-disk composition.html before serving it to
+ * the editor's iframe.
+ *
+ *   1. The CDN-hosted HyperFrames runtime is replaced with the same-origin
+ *      `/api/preview/runtime.js` proxy. Same-origin scripts pass G7 trivially
+ *      and let the iframe load behind a corporate firewall. The worker's
+ *      Chromium render still uses the CDN form (it never reads through this
+ *      function), so production renders are unchanged.
+ *   2. Relative `assets/...` references inside `<img src=>`, `<video src=>`,
+ *      `<audio src=>`, `<source src=>`, and `<link href=>` are rewritten to
+ *      the project's signed-URL passthrough at
+ *      `/api/projects/<id>/assets/<name>`. Without this rewrite the iframe
+ *      can't load any image / video the worker downloaded, because
+ *      `assets/foo.jpg` resolves against the iframe's about:srcdoc origin.
+ *   3. The GSAP CDN is left alone — it's already on a public CDN and gate
+ *      G7 explicitly allowlists `cdn.jsdelivr.net/npm/gsap`.
+ *
+ * The rewrite is purely textual; it never re-parses the HTML. That keeps it
+ * cheap and lets us run it on every preview-iframe GET without latency
+ * regressions.
+ */
+const HF_RUNTIME_CDN_RE =
+  /https?:\/\/cdn\.jsdelivr\.net\/npm\/@hyperframes\/core(@[^/]+)?\/dist\/hyperframe\.runtime\.iife\.js/g;
+const ASSET_REF_RE = /(<(?:img|video|audio|source|link)\b[^>]*?\s(?:src|href)=")assets\//gi;
+
+export function rewriteHtmlForBrowser(html: string, projectId: string): string {
+  const runtimeUrl = "/api/preview/runtime.js";
+  const assetPrefix = `/api/projects/${encodeURIComponent(projectId)}/assets/`;
+  return html
+    .replace(HF_RUNTIME_CDN_RE, runtimeUrl)
+    .replace(ASSET_REF_RE, `$1${assetPrefix}`);
 }

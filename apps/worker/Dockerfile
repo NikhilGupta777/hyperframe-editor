@@ -1,26 +1,39 @@
 # syntax=docker/dockerfile:1.7
 #
-# Worker image — runs the Oracle A1 ARM64 fleet.
-# Phase 0: ships the worker placeholder + smoke tests.
-# Phase 1+: bakes in @hyperframes/producer, fonts, and Chromium.
+# Worker image — runs on the Oracle A1 ARM64 fleet.
+#
+# Bakes in everything the real @hyperframes/producer pipeline needs:
+#   - ffmpeg + libass + libfreetype (drawtext, captioning, loudnorm)
+#   - Chromium runtime libraries (puppeteer's chrome-headless-shell deps)
+#   - the producer + core packages themselves (workspace install)
+#   - a chrome-headless-shell binary downloaded via puppeteer's installer
 #
 # Build:  docker buildx build --platform linux/arm64 -t hyperframe-editor-worker -f apps/worker/Dockerfile .
-# Run:    docker run --rm -e PLACEHOLDER=1 hyperframe-editor-worker
+# Run:    docker run --rm -e DATABASE_URL=... -e REDIS_URL=... -e STORAGE_BUCKET=... hyperframe-editor-worker
 
 FROM --platform=$TARGETPLATFORM node:22-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH="/pnpm:$PATH"
 ENV NODE_ENV=production
-ENV HYPERFRAMES_PRODUCER_AVAILABLE=0
+# RENDER_BACKEND defaults to "hyperframes" in the runner. Operators can flip
+# this to "synthetic" via docker -e for offline smoke runs against the image.
+ENV RENDER_BACKEND=hyperframes
+# Puppeteer cache lives under /root by default; we want a stable path that
+# outlives container rebuilds when bind-mounted.
+ENV PUPPETEER_CACHE_DIR=/opt/puppeteer-cache
 
-# System deps for ffmpeg + Chromium-friendly libs (kept lean for ARM).
-# Chromium itself comes from puppeteer's chrome-headless-shell at runtime.
+# ---- system deps ----------------------------------------------------------
+# ffmpeg — concat, probe, loudnorm, capture stub.
+# fonts-liberation + fonts-noto-* — drawtext + Devanagari/Hindi presets.
+# Chromium runtime libs — puppeteer's chrome-headless-shell loads these.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates fonts-liberation \
+    ca-certificates \
+    fonts-liberation fonts-noto-core fonts-noto-cjk \
     libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 \
     libcairo2 libcups2 libdbus-1-3 libdrm2 libgbm1 libglib2.0-0 \
     libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 \
     libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 \
+    libwayland-client0 \
     wget xdg-utils ffmpeg \
   && rm -rf /var/lib/apt/lists/*
 
@@ -34,27 +47,36 @@ COPY pnpm-workspace.yaml pnpm-lock.yaml package.json turbo.json tsconfig.base.js
 COPY packages ./packages
 COPY apps/worker ./apps/worker
 
-# Workspace install. We install dev deps for the build, then prune.
+# Workspace install (dev deps included so we can build).
 RUN pnpm install --frozen-lockfile
 
 # Build the worker + its workspace deps.
 RUN pnpm --filter @hyperframe-editor/worker... build
 
-# Optional: warm Chromium for puppeteer (Phase 1+). Skipped in Phase 0 — no-op
-# if @hyperframes/core is absent. Kept here as a comment for future flip:
-# RUN cd apps/worker && npx --no-install hyperframes browser ensure || true
-
 # ---- runtime stage --------------------------------------------------------
 FROM base AS runtime
 WORKDIR /repo
 
-# Copy only what we need to run.
-COPY --from=builder /repo/pnpm-workspace.yaml /repo/pnpm-lock.yaml /repo/package.json ./
+# Copy the workspace.
+COPY --from=builder /repo/pnpm-workspace.yaml /repo/pnpm-lock.yaml /repo/package.json /repo/turbo.json /repo/tsconfig.base.json ./
 COPY --from=builder /repo/packages ./packages
 COPY --from=builder /repo/apps/worker ./apps/worker
 
-# Production-only install with the same lockfile.
-RUN pnpm install --prod --frozen-lockfile
+# Production-only install with the same lockfile. Puppeteer's postinstall
+# downloads chrome-headless-shell into PUPPETEER_CACHE_DIR — that's exactly
+# what we want for runtime rendering, so we DON'T set PUPPETEER_SKIP_DOWNLOAD.
+RUN mkdir -p $PUPPETEER_CACHE_DIR \
+  && pnpm install --prod --frozen-lockfile
 
-ENV PLACEHOLDER=1
+# Verify chromium is present and exec()-able. Loud failure here beats a
+# silent "no-chromium" skip at render time.
+RUN node -e "const p=require('puppeteer'); const exe=p.executablePath(); require('fs').accessSync(exe); console.log('chromium ok:', exe)"
+
+ENV PLACEHOLDER=0
+ENV HEALTH_PORT=8787
+EXPOSE 8787
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8787/health || exit 1
+
 CMD ["node", "/repo/apps/worker/dist/index.js"]

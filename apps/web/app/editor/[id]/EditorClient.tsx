@@ -14,6 +14,7 @@ import { Timeline } from "@/components/editor/Timeline";
 import { PropsPanel } from "@/components/editor/PropsPanel";
 import { RenderHistory } from "@/components/editor/RenderHistory";
 import { StockSearch } from "@/components/editor/StockSearch";
+import { SourceUpload } from "@/components/editor/SourceUpload";
 import {
   DEFAULT_PROJECT_BUDGET_USD,
   formatUsd,
@@ -33,6 +34,13 @@ import {
  * Why we don't reuse the worker's QueuedJob shape: this is presentation
  * state, not transport. We translate user actions to API calls and decode
  * SSE frames into AgentEvent. That's it.
+ *
+ * Preview iframe:
+ *   The iframe loads `/api/projects/<id>/composition` directly via `src=`
+ *   (not `srcdoc=`). Same-origin loading is what lets the rewritten HTML
+ *   resolve `/api/preview/runtime.js` and `/api/projects/<id>/assets/...`
+ *   without CORS or sandboxed-srcdoc gotchas. The previous srcdoc approach
+ *   broke when the rewritten composition referenced same-origin assets.
  */
 export function EditorClient({ id }: { id: string }) {
   const [prompt, setPrompt] = useState(
@@ -51,8 +59,10 @@ export function EditorClient({ id }: { id: string }) {
     authoritative: false,
   });
   const [tweakPrompt, setTweakPrompt] = useState("");
-  const previewRef = useRef<HTMLIFrameElement>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  // Cache-busting key for the preview iframe. We bump it after every successful
+  // render or composition change so the iframe re-fetches the same-origin
+  // composition route instead of serving a stale cached page.
+  const [previewVersion, setPreviewVersion] = useState(0);
 
   const presets = useMemo(() => Object.values(PRESETS), []);
   const gateStatus = useMemo<Record<string, "pass" | "warn" | "fail" | "skip"> | null>(() => {
@@ -134,6 +144,9 @@ export function EditorClient({ id }: { id: string }) {
           es.close();
           void loadComposition();
           void refreshCost();
+          // Bump the preview version so the iframe reloads with the
+          // freshly-rendered composition + assets.
+          setPreviewVersion((v) => v + 1);
         }
       } catch {
         /* ignore malformed frames */
@@ -144,9 +157,27 @@ export function EditorClient({ id }: { id: string }) {
     // reloads). We only close out when the readyState is permanently CLOSED
     // (2). Earlier this listener unconditionally closed the stream which
     // caused renders to silently disconnect mid-job under any flaky network.
+    // The route returns a hard 503 when REDIS_URL is unset; that lands here
+    // as a CLOSED state and the lastError indicator carries the explanation.
     const onError = () => {
       if (es.readyState === EventSource.CLOSED || closedByDone) {
         es.close();
+        // Surface the disconnect so the chat panel shows something instead
+        // of going silent. The existing log only carries server-emitted
+        // events; this is a client-side observation.
+        setEvents((prev) => {
+          const last = prev[prev.length - 1];
+          if (last && last.type === "error") return prev;
+          if (closedByDone) return prev;
+          return [
+            ...prev,
+            {
+              type: "error",
+              message:
+                "stream closed unexpectedly. Verify the worker is running and REDIS_URL is configured.",
+            },
+          ];
+        });
       }
     };
 
@@ -158,30 +189,22 @@ export function EditorClient({ id }: { id: string }) {
     };
   }, [renderingJobId, refreshCost, loadComposition]);
 
-  // Pull HTML preview into the iframe whenever the composition changes.
+  // Rebuild the preview iframe URL whenever the composition or render output
+  // changes. We point the iframe at the same-origin /composition route
+  // directly (via `src`, not `srcdoc`) so the rewritten HTML can resolve
+  // `/api/preview/runtime.js` and `/api/projects/<id>/assets/...` without
+  // CORS / sandboxed-origin issues.
+  const previewUrl = useMemo(
+    () => `/api/projects/${id}/composition?v=${previewVersion}`,
+    [id, previewVersion],
+  );
+
+  // Bump preview version when the AST changes locally (timeline edits etc.)
+  // so the iframe re-fetches the rewritten HTML after the debounced PUT.
   useEffect(() => {
-    const ac = new AbortController();
-    abortRef.current?.abort();
-    abortRef.current = ac;
-    void (async () => {
-      try {
-        const r = await fetch(`/api/projects/${id}/composition`, {
-          cache: "no-store",
-          signal: ac.signal,
-        });
-        if (!r.ok) return;
-        const text = await r.text();
-        if (!ac.signal.aborted && previewRef.current) {
-          previewRef.current.srcdoc = text;
-        }
-      } catch {
-        // aborted or network blip
-      }
-    })();
-    return () => {
-      ac.abort();
-    };
-  }, [id, doneUrl, composition?.duration, composition?.clips.length]);
+    if (!composition) return;
+    setPreviewVersion((v) => v + 1);
+  }, [composition?.duration, composition?.clips.length]);
 
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
   function persistComposition(next: Composition) {
@@ -220,7 +243,17 @@ export function EditorClient({ id }: { id: string }) {
       body: JSON.stringify({ projectId: id, prompt, presetId }),
     });
     if (!res.ok) {
-      setEvents([{ type: "error", message: `enqueue failed: HTTP ${res.status}` }]);
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      setEvents([
+        {
+          type: "error",
+          message:
+            j.error ??
+            (res.status === 503
+              ? "Render queue not configured (REDIS_URL missing)"
+              : `enqueue failed: HTTP ${res.status}`),
+        },
+      ]);
       return;
     }
     const j = (await res.json()) as { jobId: string };
@@ -246,9 +279,17 @@ export function EditorClient({ id }: { id: string }) {
       }),
     });
     if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
       setEvents((prev) => [
         ...prev,
-        { type: "error", message: `tweak enqueue failed: HTTP ${res.status}` },
+        {
+          type: "error",
+          message:
+            j.error ??
+            (res.status === 503
+              ? "Agent queue not configured (REDIS_URL missing)"
+              : `tweak enqueue failed: HTTP ${res.status}`),
+        },
       ]);
       return;
     }
@@ -385,7 +426,9 @@ export function EditorClient({ id }: { id: string }) {
             </div>
           )}
           {tab === "assets" && (
-            <div className="p-3">
+            <div className="p-3 space-y-4">
+              <SourceUpload projectId={id} />
+              <hr className="border-muted/30" />
               <StockSearch />
             </div>
           )}
@@ -408,7 +451,7 @@ export function EditorClient({ id }: { id: string }) {
       <section className="flex flex-col">
         <div className="border-b border-muted/30 px-4 py-3 flex items-center justify-between">
           <div>Preview</div>
-          {doneUrl && (
+          {doneUrl && /^https?:/.test(doneUrl) && (
             <a
               href={doneUrl}
               className="text-xs underline opacity-80"
@@ -421,16 +464,17 @@ export function EditorClient({ id }: { id: string }) {
         </div>
         <div className="flex-1 grid place-items-center bg-black/40 p-6">
           {doneUrl && /^https?:/.test(doneUrl) ? (
-            // Only embed the rendered MP4 if it's served over http(s); file://
-            // URLs from the worker's /tmp aren't reachable from the browser
-            // origin, so we fall back to the iframe preview in that case.
+            // The worker's finalize step uploads the rendered mp4 to OCI and
+            // returns a real https signed URL, so the <video> tag can play it
+            // directly. The iframe preview hides while a render is being
+            // shown — switch back to it for the next composition edit.
             <video src={doneUrl} controls className="max-h-full max-w-full" />
           ) : (
             <iframe
-              ref={previewRef}
+              key={previewUrl}
+              src={previewUrl}
               title="composition preview"
               className="aspect-[9/16] h-full max-h-full border border-muted/40 bg-ink"
-              sandbox="allow-scripts"
             />
           )}
         </div>
