@@ -53,7 +53,7 @@ interface ComposeJobPayload {
 
 export async function runComposeLoop(job: QueuedJob): Promise<void> {
   const payload = job.payload as unknown as ComposeJobPayload;
-  const presetId = payload.presetId ?? "tiktok-hook";
+  const presetId = payload.presetId ?? "youtube-essay";
   const preset = getPreset(presetId);
 
   await recordJobStart(job.jobId);

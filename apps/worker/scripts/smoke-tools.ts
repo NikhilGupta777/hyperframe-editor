@@ -12,6 +12,7 @@ import { execa } from "execa";
 
 import { silenceCut } from "../src/tools/silenceCut.js";
 import { autoCaption } from "../src/tools/autoCaption.js";
+import { TOOL_IMPLS } from "../src/tools/index.js";
 
 const workDir = await mkdtemp(join(tmpdir(), "hf-tools-smoke-"));
 console.log(`workDir = ${workDir}`);
@@ -72,6 +73,37 @@ try {
     failed++;
   } else {
     console.log(`PASS  subtitle SRT (${sub.lines.length} lines)`);
+  }
+
+  const estimate = (await TOOL_IMPLS.cost_estimate(
+    { workDir, projectId: "tools-smoke" },
+    {
+      composition: {
+        id: "tools-smoke",
+        canvas: { width: 1080, height: 1920, fps: 30 },
+        duration: 4,
+        assets: [],
+        clips: [
+          {
+            id: "clip-1",
+            kind: "block",
+            block: "HookTitle",
+            trackIndex: 0,
+            start: 0,
+            duration: 4,
+            playbackOffset: 0,
+            props: { text: "Tool smoke" },
+          },
+        ],
+        variables: {},
+      },
+    },
+  )) as { entries?: Array<{ costUsd: number }> };
+  if (!estimate.entries?.[0] || estimate.entries[0].costUsd <= 0) {
+    console.error("FAIL  dispatcher cost_estimate did not return a positive render estimate");
+    failed++;
+  } else {
+    console.log("PASS  dispatcher cost_estimate wired");
   }
 } finally {
   await rm(workDir, { recursive: true, force: true });

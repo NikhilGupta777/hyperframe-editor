@@ -16,6 +16,7 @@ const events: JobEvent[] = [];
 setEventTap((_id, e) => events.push(e));
 
 process.env.RENDER_BACKEND = "synthetic";
+process.env.WORKER_OFFLINE_STUBS = "1";
 
 const job: QueuedJob = {
   jobId: "cost-smoke-job",

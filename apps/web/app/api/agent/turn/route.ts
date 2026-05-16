@@ -10,7 +10,7 @@ const Body = z.object({
   prompt: z.string().min(1),
   /** Optional kind — "build" creates a new composition, "tweak" patches the existing one. */
   kind: z.enum(["build", "tweak", "edit-source"]).default("build"),
-  presetId: z.string().default("tiktok-hook"),
+  presetId: z.string().default("youtube-essay"),
 });
 
 /**
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
   // The worker uses underscored names ("edit_source") on the queue while the
   // editor's chat UI sends hyphenated ("edit-source"). Normalise here.
   const kind = inputKind === "edit-source" ? "edit_source" : inputKind;
-  const presetId = parsed.presetId ?? "tiktok-hook";
+  const presetId = parsed.presetId ?? "youtube-essay";
   const job = {
     jobId,
     kind,

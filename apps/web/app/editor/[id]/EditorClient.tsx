@@ -44,9 +44,9 @@ import {
  */
 export function EditorClient({ id }: { id: string }) {
   const [prompt, setPrompt] = useState(
-    "Make a 30-second TikTok-style hook reel about morning chai.",
+    "Edit this 5-10 minute video with strong pacing, clean captions, relevant B-roll, motion graphics, music, and a polished intro/outro. Keep the full story unless I ask for a short.",
   );
-  const [presetId, setPresetId] = useState("tiktok-hook");
+  const [presetId, setPresetId] = useState("youtube-essay");
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [renderingJobId, setRenderingJobId] = useState<string | null>(null);
   const [doneUrl, setDoneUrl] = useState<string | null>(null);

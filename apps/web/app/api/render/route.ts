@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 const Body = z.object({
   projectId: z.string(),
   prompt: z.string().min(3),
-  presetId: z.string().default("tiktok-hook"),
+  presetId: z.string().default("youtube-essay"),
   /** Worker job kind. Default `compose` (the BUILD loop). */
   kind: z.enum(["compose", "tweak", "edit_source"]).default("compose"),
 });

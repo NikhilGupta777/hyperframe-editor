@@ -2,13 +2,7 @@ import type { Metadata } from "next";
 import { validateEnv } from "@/lib/env";
 import "./globals.css";
 
-// Validate env on first server-side render. Crashes loud on missing required vars.
-const envCheck = validateEnv();
-if (!envCheck.valid) {
-  throw new Error(
-    `[hyperframe-editor] Cannot start: missing required env vars:\n${envCheck.missing.join("\n")}`,
-  );
-}
+validateEnv();
 
 export const metadata: Metadata = {
   title: "hyperframe-editor",
