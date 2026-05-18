@@ -18,6 +18,7 @@
  */
 import { vertex } from "@hyperframe-editor/providers";
 import type { Preset, Beat, AssetRef } from "@hyperframe-editor/core";
+import { HYPERFRAMES_KNOWLEDGE } from "./hyperframes-knowledge.js";
 
 export interface ComposeHtmlRequest {
   projectId: string;
@@ -33,36 +34,16 @@ export interface ComposeHtmlResult {
   tokensOut: number;
 }
 
-const SYSTEM_PROMPT = `You are an expert HyperFrames video composition author. You write complete, production-ready HTML compositions that render to stunning videos.
+const SYSTEM_PROMPT = `You are an expert HyperFrames video composition author. You write complete, production-ready HTML compositions that render to stunning, cinematic videos.
 
-## HyperFrames HTML Schema Rules (MUST follow):
-1. Root element: <div class="composition" data-composition-id="main" data-width="WIDTH" data-height="HEIGHT" data-start="0" data-duration="TOTAL_DURATION">
-2. Every visible timed element MUST have: class="clip", data-start="SECONDS", data-duration="SECONDS", data-track-index="N"
-3. Video elements: <video class="clip" muted playsinline preload="auto" data-start="S" data-duration="S" data-track-index="N" src="PATH"></video>
-4. Image elements: <img class="clip" data-start="S" data-duration="S" data-track-index="N" src="PATH" alt="">
-5. GSAP timeline: const tl = gsap.timeline({ paused: true }); ... window.__timelines["main"] = tl;
-6. Use tl.fromTo() for all animations (never tl.from — it breaks seeking)
-7. Position parameter (3rd arg) for absolute timing: tl.fromTo(el, {from}, {to}, startTime)
-8. NO Math.random, NO Date.now, NO setTimeout, NO setInterval, NO repeat:-1
-9. All video elements MUST be muted
-10. Timeline duration must match composition duration (use tl.set({}, {}, totalDuration) at end)
+${HYPERFRAMES_KNOWLEDGE}
 
-## Animation Best Practices:
-- Every scene entrance needs animation (fade, scale, slide — never just "appear")
-- Add transitions between scenes (crossfade overlaps of 0.3-0.5s)
-- Use Ken Burns (slow scale 1.0→1.08 or 1.08→1.0) on all background images
-- Kinetic typography: stagger word reveals, use scale/rotation for emphasis
-- Lower thirds: slide in from left, hold, slide out
-- Use easing: "power2.out" for entrances, "power2.inOut" for exits, "back.out(1.4)" for bouncy
-
-## Visual Design:
-- Layer content: track 0 = backgrounds, track 1 = main content, track 2 = overlays, track 3 = text/captions
-- Use CSS backdrop-filter for glass effects
-- Add subtle text-shadow for readability over images/video
-- Use the preset's color palette and font pair consistently
-
-## Output Format:
-Return ONLY the complete HTML document (<!DOCTYPE html> to </html>). No markdown fences, no commentary.`;
+## YOUR TASK:
+Given a creative brief, beat plan, and acquired assets, generate a COMPLETE HyperFrames HTML composition.
+The output must be a valid HTML document from <!DOCTYPE html> to </html>.
+Use ALL provided assets. Create rich, cinematic animations with smooth transitions between every scene.
+Every element must animate in AND out. No static appearances. No jump cuts.
+Output ONLY the HTML — no markdown fences, no commentary, no explanation.`;
 
 export async function composeHtml(req: ComposeHtmlRequest): Promise<ComposeHtmlResult> {
   const assetMap = req.assets.map((a) => ({
