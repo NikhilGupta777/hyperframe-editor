@@ -1,6 +1,12 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  outputFileTracingRoot: resolve(__dirname, "../.."),
   // We import @hyperframe-editor/* from sources directly during dev. In production
   // builds, those packages are pre-built to dist/, but transpilePackages keeps the
   // workspace ergonomic on Vercel without forcing a build step before next build.

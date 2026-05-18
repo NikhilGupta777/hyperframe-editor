@@ -56,6 +56,7 @@ const job: QueuedJob = {
 };
 
 process.env.RENDER_BACKEND = "synthetic";
+process.env.WORKER_OFFLINE_STUBS = "1";
 let exitCode = 0;
 try {
   await runEditSourceLoop(job);

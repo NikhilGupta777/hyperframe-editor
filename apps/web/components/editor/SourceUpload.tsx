@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-interface SourceRow {
+export interface SourceRow {
   id: string;
   kind: string;
   storageUri: string;
-  durationSec?: string;
+  durationSec?: string | number;
   width?: number;
   height?: number;
 }
@@ -21,7 +21,15 @@ interface SourceRow {
  * Lists existing sources below the upload zone so the user can see what
  * they've already uploaded and (Phase 3+) trigger an edit-source loop.
  */
-export function SourceUpload({ projectId }: { projectId: string }) {
+export function SourceUpload({
+  projectId,
+  disabled,
+  onEditSource,
+}: {
+  projectId: string;
+  disabled?: boolean;
+  onEditSource?: (source: SourceRow) => void;
+}) {
   const [sources, setSources] = useState<SourceRow[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -91,12 +99,14 @@ export function SourceUpload({ projectId }: { projectId: string }) {
           : file.type.startsWith("image/")
             ? "image"
             : "doc";
+      const meta = await readMediaMetadata(file, kind);
       const regRes = await fetch(`/api/projects/${projectId}/sources`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           storageUri: `oci://${process.env.NEXT_PUBLIC_STORAGE_BUCKET ?? "bucket"}/${key}`,
           kind,
+          ...meta,
         }),
       });
       if (!regRes.ok) {
@@ -144,7 +154,7 @@ export function SourceUpload({ projectId }: { projectId: string }) {
         />
         <button
           onClick={() => fileRef.current?.click()}
-          disabled={uploading}
+          disabled={uploading || disabled}
           className="rounded bg-accent text-ink px-3 py-1 font-semibold disabled:opacity-50"
         >
           {uploading ? "Uploading\u2026" : "Choose file"}
@@ -169,11 +179,23 @@ export function SourceUpload({ projectId }: { projectId: string }) {
                 className="rounded border border-muted/30 px-2 py-1 flex items-center justify-between"
               >
                 <span className="font-mono opacity-80">{s.kind}</span>
-                {s.durationSec && (
-                  <span className="opacity-60">
-                    {Number(s.durationSec).toFixed(1)}s
-                  </span>
-                )}
+                <div className="flex items-center gap-2">
+                  {s.durationSec && (
+                    <span className="opacity-60">
+                      {Number(s.durationSec).toFixed(1)}s
+                    </span>
+                  )}
+                  {s.kind === "video" && onEditSource && (
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => onEditSource(s)}
+                      className="rounded bg-accent px-2 py-0.5 font-semibold text-ink disabled:opacity-50"
+                    >
+                      Edit full video
+                    </button>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
@@ -181,4 +203,31 @@ export function SourceUpload({ projectId }: { projectId: string }) {
       )}
     </div>
   );
+}
+
+async function readMediaMetadata(
+  file: File,
+  kind: string,
+): Promise<{ durationSec?: number; width?: number; height?: number }> {
+  if (kind !== "video" && kind !== "audio") return {};
+  const url = URL.createObjectURL(file);
+  try {
+    const el = document.createElement(kind === "video" ? "video" : "audio");
+    el.preload = "metadata";
+    const loaded = new Promise<void>((resolve, reject) => {
+      el.onloadedmetadata = () => resolve();
+      el.onerror = () => reject(new Error("could not read media metadata"));
+    });
+    el.src = url;
+    await loaded;
+    return {
+      durationSec: Number.isFinite(el.duration) ? Number(el.duration.toFixed(3)) : undefined,
+      width: kind === "video" ? (el as HTMLVideoElement).videoWidth || undefined : undefined,
+      height: kind === "video" ? (el as HTMLVideoElement).videoHeight || undefined : undefined,
+    };
+  } catch {
+    return {};
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }

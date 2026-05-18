@@ -1,10 +1,13 @@
 /**
  * Runtime env validation for the web app. Imported at the top of layout.tsx
- * (server component) so a misconfigured Vercel deploy fails immediately on
- * the first request rather than 500ing deep inside a route handler.
+ * (server component) so deploy logs show missing infra clearly.
  *
- * We split into REQUIRED (hard crash) and OPTIONAL (warn + degrade gracefully).
- * The worker has its own env validation in apps/worker/src/index.ts.
+ * Web routes already degrade without DATABASE_URL where possible and DB-backed
+ * routes fail loudly at the point of use. Do not crash layout/build here:
+ * `next build` collects page data without production env vars in CI and local
+ * development, and a layout-level throw breaks even static pages.
+ *
+ * The worker has its own stricter runtime validation in apps/worker/src/index.ts.
  */
 
 interface EnvSpec {
@@ -14,13 +17,11 @@ interface EnvSpec {
 }
 
 const ENV_SPECS: EnvSpec[] = [
-  // Required for core functionality
   {
     key: "DATABASE_URL",
-    required: true,
-    description: "Postgres connection string (Neon, Supabase, or self-hosted)",
+    required: false,
+    description: "Postgres connection string (Neon, Supabase, or self-hosted). Without it, DB-backed routes use degraded mode or return 404/503.",
   },
-  // Optional — app degrades gracefully without these
   {
     key: "REDIS_URL",
     required: false,

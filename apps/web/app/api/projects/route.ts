@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 
 const Body = z.object({
   title: z.string().min(1).max(120),
-  preset: z.string().default("tiktok-hook"),
+  preset: z.string().default("youtube-essay"),
 });
 
 /**
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
 
   let preset;
   try {
-    preset = getPreset(parsed.preset ?? "tiktok-hook");
+    preset = getPreset(parsed.preset ?? "youtube-essay");
   } catch (e) {
     return badRequest((e as Error).message);
   }
