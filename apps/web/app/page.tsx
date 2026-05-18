@@ -23,7 +23,7 @@ export default function Home() {
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectRow[] | null>(null);
   const [title, setTitle] = useState("Untitled project");
-  const [preset, setPreset] = useState("tiktok-hook");
+  const [preset, setPreset] = useState("youtube-essay");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const presetOptions = Object.values(PRESETS);
@@ -73,7 +73,7 @@ export default function Home() {
     <main className="mx-auto max-w-3xl px-6 py-16">
       <h1 className="font-display text-5xl tracking-tight">hyperframe-editor</h1>
       <p className="mt-4 text-lg opacity-80">
-        AI-native video-editor agent. Prompt, preview, render \u2014 in the browser.
+        AI-native HyperFrames video editor for full 5-10 minute videos, source edits, motion graphics, captions, B-roll, preview, and render.
       </p>
 
       <section className="mt-10 rounded border border-muted/40 bg-ink/40 p-4">
@@ -146,7 +146,7 @@ export default function Home() {
       </section>
 
       <ul className="mt-12 grid gap-3 text-sm opacity-80">
-        <li>\u2022 Two loops: BUILD (prompt \u2192 MP4) and EDIT-SOURCE (video \u2192 polished cut)</li>
+        <li>\u2022 Two loops: BUILD (prompt \u2192 full video) and EDIT-SOURCE (source video \u2192 polished edit)</li>
         <li>\u2022 8 mandatory quality gates run on every render</li>
         <li>\u2022 HyperFrames composition is the source of truth</li>
         <li>\u2022 Frontend on Vercel \u00b7 workers on Oracle Free Tier (ARM64)</li>

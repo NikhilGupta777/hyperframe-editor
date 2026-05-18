@@ -13,6 +13,14 @@ const Body = z.object({
   sha256: z.string().optional(),
 });
 
+type EphemeralSource = z.infer<typeof Body> & {
+  id: string;
+  projectId: string;
+  createdAt: string;
+};
+
+const ephemeralSources = new Map<string, EphemeralSource[]>();
+
 /**
  * POST /api/projects/:id/sources
  *
@@ -24,9 +32,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const parsed = await readJson(req, Body);
   if (parsed instanceof NextResponse) return parsed;
   if (!process.env.DATABASE_URL) {
-    return NextResponse.json({
-      source: { id: crypto.randomUUID(), projectId: id, ...parsed },
-    });
+    const source: EphemeralSource = {
+      id: crypto.randomUUID(),
+      projectId: id,
+      createdAt: new Date().toISOString(),
+      ...parsed,
+    };
+    const existing = ephemeralSources.get(id) ?? [];
+    ephemeralSources.set(id, [source, ...existing]);
+    return NextResponse.json({ source });
   }
   try {
     const { registerSource } = await import("@hyperframe-editor/db");
@@ -47,7 +61,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  if (!process.env.DATABASE_URL) return NextResponse.json({ sources: [] });
+  if (!process.env.DATABASE_URL) {
+    return NextResponse.json({ sources: ephemeralSources.get(id) ?? [] });
+  }
   try {
     const { listSources } = await import("@hyperframe-editor/db");
     return NextResponse.json({ sources: await listSources(id) });

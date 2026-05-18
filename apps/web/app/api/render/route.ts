@@ -7,9 +7,22 @@ export const runtime = "nodejs";
 const Body = z.object({
   projectId: z.string(),
   prompt: z.string().min(3),
-  presetId: z.string().default("tiktok-hook"),
+  presetId: z.string().default("youtube-essay"),
   /** Worker job kind. Default `compose` (the BUILD loop). */
   kind: z.enum(["compose", "tweak", "edit_source"]).default("compose"),
+  sourceUri: z.string().min(1).optional(),
+  sources: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        uri: z.string().min(1),
+        language: z.string().optional(),
+      }),
+    )
+    .optional(),
+  targetDurationSec: z.number().positive().optional(),
+  language: z.string().optional(),
+  captions: z.boolean().optional(),
 });
 
 /**
@@ -44,11 +57,35 @@ export async function POST(req: Request) {
   }
 
   const jobId = randomUUID();
+  const payload =
+    parsed.data.kind === "edit_source"
+      ? {
+          direction: parsed.data.prompt,
+          presetId: parsed.data.presetId,
+          ...(parsed.data.sourceUri ? { sourceUri: parsed.data.sourceUri } : {}),
+          ...(parsed.data.sources ? { sources: parsed.data.sources } : {}),
+          targetDurationSec: parsed.data.targetDurationSec ?? 600,
+          ...(parsed.data.language ? { language: parsed.data.language } : {}),
+          ...(parsed.data.captions !== undefined ? { captions: parsed.data.captions } : {}),
+        }
+      : { prompt: parsed.data.prompt, presetId: parsed.data.presetId };
+
+  if (
+    parsed.data.kind === "edit_source" &&
+    !parsed.data.sourceUri &&
+    !parsed.data.sources?.length
+  ) {
+    return NextResponse.json(
+      { error: "edit_source requires sourceUri or sources" },
+      { status: 400 },
+    );
+  }
+
   const job = {
     jobId,
     kind: parsed.data.kind,
     projectId: parsed.data.projectId,
-    payload: { prompt: parsed.data.prompt, presetId: parsed.data.presetId },
+    payload,
   };
 
   const { enqueueJob } = await import("@hyperframe-editor/queue");
