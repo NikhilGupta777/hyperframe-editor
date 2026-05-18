@@ -1,44 +1,49 @@
-# Local research clones — kept out of git, local reference only
-research/
+# See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
 
-# Node / Bun
-node_modules/
-.next/
-dist/
-build/
-*.log
+# compiled output
+dist
+tmp
+out-tsc
 *.tsbuildinfo
-.turbo/
-.vercel/
+.expo
+.expo-shared
 
-# Python
-__pycache__/
-*.pyc
-.venv/
-.uv/
-uv.lock
+# dependencies
+node_modules
 
-# Env / secrets
-.env
-.env.local
-.env.*.local
-*.pem
-*.key
+# IDEs and editors
+/.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
 
-# OS
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# misc
+/.sass-cache
+/connect.lock
+/coverage
+/libpeerconnection.log
+npm-debug.log
+yarn-error.log
+testem.log
+/typings
+
+# System Files
 .DS_Store
 Thumbs.db
 
-# Editor
-.idea/
-.vscode/
-*.swp
+.cursor/rules/nx-rules.mdc
+.github/instructions/nx.instructions.md
 
-# Render output
-*.mp4
-*.webm
-*.mov
-out/
-renders/
-tmp/
+# Replit
 .cache/
+.local/
