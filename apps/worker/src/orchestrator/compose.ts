@@ -28,7 +28,6 @@ import {
 import { buildCompositionHtml } from "@hyperframe-editor/compose";
 import { publishEvent, type QueuedJob } from "@hyperframe-editor/queue";
 
-import { lintAndHeal } from "../agents/lintHeal.js";
 import { writeBrief } from "../agents/writeBrief.js";
 import { planBeats } from "../agents/planBeats.js";
 import { acquireAssets, type AcquiredAsset } from "../agents/acquireAssets.js";
@@ -149,22 +148,42 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
 
       // ---- LINT (self-heal) -------------------------------------------------
       await publishEvent(job.jobId, { type: "step", step: "LINT", status: "running" });
-      const html0 = buildCompositionHtml({ preset, composition });
-      const { html, attempts, errors } = await lintAndHeal(html0, {
-        retry: async (lintErrors) => {
-          await publishEvent(job.jobId, {
-            type: "log",
-            level: "warn",
-            msg: `lint produced ${lintErrors.length} error(s)`,
-          });
-          return html0;
-        },
+
+      // Use Gemini to generate a full HyperFrames HTML composition directly.
+      // This produces far richer output than the block-based builder: real video
+      // clips, GSAP animations, transitions, kinetic typography, etc.
+      const { composeHtml } = await import("../agents/composeHtml.js");
+      const composeRes = await composeHtml({
+        projectId: job.projectId,
+        brief: { title: brief.title, summary: brief.summary, mandates: brief.mandates },
+        beats,
+        assets: acquired.assets.map((a) => ({ beatId: a.beatId, slot: a.slot, asset: a.asset })),
+        preset,
       });
+      await cost.recordText("gemini-3.1-pro-preview", composeRes.tokensIn, composeRes.tokensOut);
+
+      let html = composeRes.html;
+
+      // Run the portable lint to catch structural issues
+      const { lintHtml } = await import("../agents/lintHeal.js");
+      const lintErrors = lintHtml(html);
       await publishEvent(job.jobId, {
         type: "log",
-        level: errors.length === 0 ? "info" : "warn",
-        msg: `lint pass: attempts=${attempts}, errors=${errors.length}`,
+        level: lintErrors.length === 0 ? "info" : "warn",
+        msg: `lint pass: errors=${lintErrors.length}`,
       });
+
+      // If lint found critical issues, fall back to the block-based builder
+      if (lintErrors.some((e) => e.rule === "doctype" || e.rule === "timeline_paused" || e.rule === "timeline_registered")) {
+        await publishEvent(job.jobId, {
+          type: "log",
+          level: "warn",
+          msg: "AI composition had structural issues, falling back to block builder",
+        });
+        const { buildCompositionHtml } = await import("@hyperframe-editor/compose");
+        html = buildCompositionHtml({ preset, composition });
+      }
+
       await persistComposition.save(job.projectId, composition, html);
     }
 
