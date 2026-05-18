@@ -109,7 +109,7 @@ async function applyTweak(
     temperature: 0.2,
     jsonSchema: PATCH_SCHEMA,
   });
-  await cost.recordText("gemini-3.1-pro", r.tokensIn, r.tokensOut);
+  await cost.recordText("gemini-3.1-pro-preview", r.tokensIn, r.tokensOut);
   const parsed = (r.parsed ?? JSON.parse(r.text)) as { composition: unknown };
   return CompositionSchema.parse(parsed.composition);
 }

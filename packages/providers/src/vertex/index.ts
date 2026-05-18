@@ -45,14 +45,15 @@ export function getClient(): GoogleGenAI {
     vertexai: true,
     project: cfg.project,
     location: cfg.location,
+    apiVersion: "v1",
   });
   return cached;
 }
 
 export const MODELS = {
-  reasoning: "gemini-3.1-pro",
+  reasoning: "gemini-3.1-pro-preview",
   cheap: "gemini-2.5-flash",
-  imageHQ: "gemini-3-pro-image",
+  imageHQ: "gemini-3-pro-image-preview",
   imageFast: "imagen-4.0-fast-generate-001",
 } as const;
 

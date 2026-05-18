@@ -80,7 +80,19 @@ export async function planBeats(req: PlanRequest): Promise<PlanResult> {
     return { beats, usage: null };
   }
 
-  const system = `You are a video director. Given a brief and a preset's beat skeleton, return a list of beats as STRICT JSON. Each beat's duration must lie inside its slot's durRange. Use only block names listed for the slot. Output JSON only.`;
+  const system = `You are a professional video director creating a dynamic, visually rich video. Given a brief and a preset's beat skeleton, return a list of beats as STRICT JSON.
+
+Rules:
+- Each beat's duration must lie inside its slot's durRange.
+- Use MULTIPLE block names from the slot's available blocks to create layered compositions (e.g. a KenBurnsImage background with a LowerThird overlay).
+- Every beat MUST have at least one assetCue with a descriptive, specific search query for stock media.
+- For body/content beats, include BOTH image and video asset cues for visual variety.
+- Asset queries should be specific and cinematic (e.g. "aerial drone shot of city skyline at sunset" not just "city").
+- Narration text should be compelling and concise — this is what appears on screen.
+- Create at least 5-8 beats for videos over 60 seconds to maintain visual variety.
+- Vary the blocks across beats — don't repeat the same block pattern.
+
+Output JSON only, no commentary.`;
   const userMsg = JSON.stringify({
     brief: req.brief,
     skeleton: req.preset.skeleton,
@@ -104,7 +116,7 @@ export async function planBeats(req: PlanRequest): Promise<PlanResult> {
   }));
   return {
     beats,
-    usage: { model: "gemini-3.1-pro", tokensIn: r.tokensIn, tokensOut: r.tokensOut },
+    usage: { model: "gemini-3.1-pro-preview", tokensIn: r.tokensIn, tokensOut: r.tokensOut },
   };
 }
 

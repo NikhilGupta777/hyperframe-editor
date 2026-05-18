@@ -125,7 +125,7 @@ export async function runEditSourceLoop(job: QueuedJob): Promise<void> {
       });
       const transcribed = await transcribeOrStub(wav, src.language ?? payload.language);
       if (transcribed.tokensIn > 0 || transcribed.tokensOut > 0) {
-        await cost.recordText("gemini-3.1-pro", transcribed.tokensIn, transcribed.tokensOut);
+        await cost.recordText("gemini-3.1-pro-preview", transcribed.tokensIn, transcribed.tokensOut);
       }
       staged.push({
         id: src.id,
