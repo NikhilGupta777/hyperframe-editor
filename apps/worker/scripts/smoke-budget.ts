@@ -26,7 +26,7 @@ try {
 }
 
 // 3. price math sanity
-const text = priceText("gemini-3.1-pro", 12_000, 4_000);
+const text = priceText("gemini-3.1-pro-preview", 12_000, 4_000);
 const img = priceImage("imagen-4.0-fast-generate-001", 3);
 const ren = priceRender(45);
 const totalText = text.reduce((a, e) => a + e.costUsd, 0);

@@ -121,7 +121,7 @@ export async function runComposeLoop(job: QueuedJob): Promise<void> {
         );
       }
       if (acquired.generatedImagesByModel.hq > 0) {
-        await cost.recordImage("gemini-3-pro-image", acquired.generatedImagesByModel.hq);
+        await cost.recordImage("gemini-3-pro-image-preview", acquired.generatedImagesByModel.hq);
       }
       await publishEvent(job.jobId, {
         type: "log",
@@ -301,39 +301,110 @@ function beatsToComposition(
   const clips: Composition["clips"] = [];
   const assets: AssetRef[] = [];
   let t = 0;
+
   for (let i = 0; i < beats.length; i++) {
     const b = beats[i]!;
-    const block = b.blocks[0] ?? "HookTitle";
+    const beatAssets = acquired.filter((a) => a.beatId === b.id);
+    const imageAssets = beatAssets.filter((a) => a.asset.kind === "image");
+    const videoAssets = beatAssets.filter((a) => a.asset.kind === "video");
+
+    // Track 0: Background layer — KenBurns image or first available asset
+    const bgAsset = imageAssets[0] ?? videoAssets[0];
+    if (bgAsset) {
+      assets.push(bgAsset.asset);
+      if (bgAsset.asset.kind === "image") {
+        clips.push({
+          id: `${b.id}-bg-${i}`,
+          kind: "block",
+          block: "KenBurnsImage",
+          trackIndex: 0,
+          start: Number(t.toFixed(3)),
+          duration: Number(b.duration.toFixed(3)),
+          playbackOffset: 0,
+          props: { src: bgAsset.asset.src, direction: i % 2 === 0 ? "in" : "out" },
+        });
+      } else {
+        clips.push({
+          id: `${b.id}-bg-${i}`,
+          kind: "block",
+          block: "BRollWindow",
+          trackIndex: 0,
+          start: Number(t.toFixed(3)),
+          duration: Number(b.duration.toFixed(3)),
+          playbackOffset: 0,
+          props: { src: bgAsset.asset.src, corner: "center", width: 1.0 },
+        });
+      }
+    }
+
+    // Track 1: Primary text/content block — the main block for this beat
+    const primaryBlock = b.blocks[0] ?? "HookTitle";
     clips.push({
-      id: `${b.id}-${i}`,
+      id: `${b.id}-main-${i}`,
       kind: "block",
-      block,
-      trackIndex: 0,
+      block: primaryBlock,
+      trackIndex: 1,
       start: Number(t.toFixed(3)),
       duration: Number(b.duration.toFixed(3)),
       playbackOffset: 0,
-      props: propsForBlock(block, b),
+      props: propsForBlock(primaryBlock, b),
     });
 
-    // Layer any acquired assets for this beat as a KenBurnsImage on track 1,
-    // sized to the beat. Image-only for MVP; video B-rolls land in Phase 2.
-    const beatAssets = acquired.filter((a) => a.beatId === b.id);
-    for (const a of beatAssets) {
-      if (a.asset.kind !== "image") continue;
-      assets.push(a.asset);
+    // Track 2: Secondary blocks (overlays) — use remaining blocks from the beat
+    for (let bi = 1; bi < b.blocks.length && bi <= 2; bi++) {
+      const overlayBlock = b.blocks[bi]!;
+      // Skip blocks that need assets if we don't have them
+      if ((overlayBlock === "KenBurnsImage" || overlayBlock === "BRollWindow") && !imageAssets[bi]) {
+        continue;
+      }
       clips.push({
-        id: `${b.id}-bg-${assets.length}`,
+        id: `${b.id}-overlay-${bi}-${i}`,
         kind: "block",
-        block: "KenBurnsImage",
-        trackIndex: 1,
+        block: overlayBlock,
+        trackIndex: 1 + bi,
         start: Number(t.toFixed(3)),
         duration: Number(b.duration.toFixed(3)),
         playbackOffset: 0,
-        props: { src: a.asset.src, direction: "in" },
+        props: propsForBlock(overlayBlock, b),
       });
     }
+
+    // Track 3: B-roll video window (picture-in-picture) if we have video assets
+    if (videoAssets.length > 0 && primaryBlock !== "BRollWindow") {
+      const vid = videoAssets[0]!;
+      assets.push(vid.asset);
+      clips.push({
+        id: `${b.id}-broll-${i}`,
+        kind: "block",
+        block: "BRollWindow",
+        trackIndex: 3,
+        start: Number((t + b.duration * 0.1).toFixed(3)),
+        duration: Number((b.duration * 0.7).toFixed(3)),
+        playbackOffset: 0,
+        props: { src: vid.asset.src, corner: "br", width: 0.36 },
+      });
+    }
+
+    // Track 4: Additional image assets as secondary KenBurns (split the beat)
+    if (imageAssets.length > 1) {
+      const secondImg = imageAssets[1]!;
+      assets.push(secondImg.asset);
+      const halfDur = b.duration / 2;
+      clips.push({
+        id: `${b.id}-img2-${i}`,
+        kind: "block",
+        block: "KenBurnsImage",
+        trackIndex: 0,
+        start: Number((t + halfDur).toFixed(3)),
+        duration: Number(halfDur.toFixed(3)),
+        playbackOffset: 0,
+        props: { src: secondImg.asset.src, direction: "out" },
+      });
+    }
+
     t += b.duration;
   }
+
   const composition: Composition = {
     id: projectId,
     canvas: preset.canvas,
@@ -350,7 +421,7 @@ function propsForBlock(block: string, beat: Beat): Record<string, unknown> {
   const narration = beat.narration ?? "";
   switch (block) {
     case "HookTitle":
-      return { text: narration || "Hook", subtext: undefined };
+      return { text: narration || "Hook", subtext: "" };
     case "EndCard":
       return { cta: narration || "Subscribe" };
     case "KineticHeadline":
@@ -358,19 +429,19 @@ function propsForBlock(block: string, beat: Beat): Record<string, unknown> {
         words: (narration || beat.id).split(/\s+/).filter(Boolean).slice(0, 8),
       };
     case "QuoteCard":
-      return { quote: narration || "—", attribution: undefined };
+      return { quote: narration || "—", attribution: "" };
     case "LowerThird":
-      return { name: narration || "Speaker", title: undefined };
+      return { name: narration || "Speaker", title: "" };
     case "LogoBug":
       return { handle: "@hyperframeeditor" };
     case "CaptionBlock":
       return { lines: [], style: "tiktok" };
     case "KenBurnsImage":
-      return { src: undefined, direction: "in" };
+      return { src: "", direction: "in" };
     case "BRollWindow":
-      return { src: undefined };
+      return { src: "" };
     case "SplitScreen":
-      return { left: undefined, right: undefined };
+      return { left: "", right: "" };
     default:
       return {};
   }

@@ -18,7 +18,7 @@ export interface Brief {
  * the deterministic offline path (no spend to record).
  */
 export interface AgentUsage {
-  model: "gemini-3.1-pro" | "gemini-2.5-flash";
+  model: "gemini-3.1-pro-preview" | "gemini-2.5-flash";
   tokensIn: number;
   tokensOut: number;
 }
@@ -38,7 +38,7 @@ const SCHEMA = {
 };
 
 export async function writeBrief(req: BriefRequest): Promise<BriefResult> {
-  const system = `You are a video director. Read a user's brief and the active preset; produce a concise creative brief as STRICT JSON. No markdown, no commentary.`;
+  const system = `You are a creative video director known for visually stunning, dynamic content. Read a user's brief and the active preset; produce a concise creative brief as STRICT JSON. The brief should inspire a visually rich, multi-scene video with varied pacing, compelling narration, and cinematic imagery. No markdown, no commentary.`;
   const userMsg = JSON.stringify({
     userPrompt: req.prompt,
     preset: {
@@ -86,7 +86,7 @@ export async function writeBrief(req: BriefRequest): Promise<BriefResult> {
       summary: parsed.summary,
       mandates: parsed.mandates ?? [],
     },
-    usage: { model: "gemini-3.1-pro", tokensIn: r.tokensIn, tokensOut: r.tokensOut },
+    usage: { model: "gemini-3.1-pro-preview", tokensIn: r.tokensIn, tokensOut: r.tokensOut },
   };
 }
 

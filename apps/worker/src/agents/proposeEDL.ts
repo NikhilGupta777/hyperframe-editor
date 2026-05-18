@@ -86,6 +86,6 @@ Hard rules:
   const parsed = (r.parsed ?? JSON.parse(r.text)) as { entries: EDLEntry[] };
   return {
     edl: { entries: parsed.entries },
-    usage: { model: "gemini-3.1-pro", tokensIn: r.tokensIn, tokensOut: r.tokensOut },
+    usage: { model: "gemini-3.1-pro-preview", tokensIn: r.tokensIn, tokensOut: r.tokensOut },
   };
 }
