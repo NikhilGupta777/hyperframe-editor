@@ -11,6 +11,19 @@ const Body = z.object({
   /** Optional kind — "build" creates a new composition, "tweak" patches the existing one. */
   kind: z.enum(["build", "tweak", "edit-source"]).default("build"),
   presetId: z.string().default("youtube-essay"),
+  sourceUri: z.string().min(1).optional(),
+  sources: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        uri: z.string().min(1),
+        language: z.string().optional(),
+      }),
+    )
+    .optional(),
+  targetDurationSec: z.number().positive().optional(),
+  language: z.string().optional(),
+  captions: z.boolean().optional(),
 });
 
 /**
@@ -48,11 +61,31 @@ export async function POST(req: Request) {
   // editor's chat UI sends hyphenated ("edit-source"). Normalise here.
   const kind = inputKind === "edit-source" ? "edit_source" : inputKind;
   const presetId = parsed.presetId ?? "youtube-essay";
+  const payload =
+    kind === "edit_source"
+      ? {
+          direction: parsed.prompt,
+          presetId,
+          ...(parsed.sourceUri ? { sourceUri: parsed.sourceUri } : {}),
+          ...(parsed.sources ? { sources: parsed.sources } : {}),
+          targetDurationSec: parsed.targetDurationSec ?? 600,
+          ...(parsed.language ? { language: parsed.language } : {}),
+          ...(parsed.captions !== undefined ? { captions: parsed.captions } : {}),
+        }
+      : { prompt: parsed.prompt, presetId };
+
+  if (kind === "edit_source" && !parsed.sourceUri && !parsed.sources?.length) {
+    return NextResponse.json(
+      { error: "edit-source requires sourceUri or sources" },
+      { status: 400 },
+    );
+  }
+
   const job = {
     jobId,
     kind,
     projectId: parsed.projectId,
-    payload: { prompt: parsed.prompt, presetId },
+    payload,
   };
 
   const { enqueueJob } = await import("@hyperframe-editor/queue");

@@ -14,7 +14,7 @@ import { Timeline } from "@/components/editor/Timeline";
 import { PropsPanel } from "@/components/editor/PropsPanel";
 import { RenderHistory } from "@/components/editor/RenderHistory";
 import { StockSearch } from "@/components/editor/StockSearch";
-import { SourceUpload } from "@/components/editor/SourceUpload";
+import { SourceUpload, type SourceRow } from "@/components/editor/SourceUpload";
 import {
   DEFAULT_PROJECT_BUDGET_USD,
   formatUsd,
@@ -297,6 +297,56 @@ export function EditorClient({ id }: { id: string }) {
     setRenderingJobId(j.jobId);
   }
 
+  async function startEditSource(source: SourceRow) {
+    if (renderInFlight || source.kind !== "video") return;
+    const durationSec = Number(source.durationSec ?? 600);
+    const targetDurationSec = Number.isFinite(durationSec) && durationSec > 0 ? durationSec : 600;
+    const direction =
+      prompt.trim() ||
+      "Edit this full source video with strong pacing, clean captions, relevant B-roll, motion graphics, music, and a polished intro/outro.";
+
+    setEvents([
+      {
+        type: "log",
+        level: "info",
+        msg: `queued source edit: ${source.storageUri}`,
+      },
+    ]);
+    setDoneUrl(null);
+
+    const res = await fetch("/api/agent/turn", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: id,
+        prompt: direction,
+        kind: "edit-source",
+        presetId,
+        sourceUri: source.storageUri,
+        targetDurationSec,
+        captions: true,
+      }),
+    });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      setEvents((prev) => [
+        ...prev,
+        {
+          type: "error",
+          message:
+            j.error ??
+            (res.status === 503
+              ? "Agent queue not configured (REDIS_URL missing)"
+              : `edit-source enqueue failed: HTTP ${res.status}`),
+        },
+      ]);
+      return;
+    }
+    const j = (await res.json()) as { jobId: string };
+    setRenderingJobId(j.jobId);
+    setTab("chat");
+  }
+
   // Keyboard shortcut: Cmd/Ctrl+Enter renders. Common pattern in chat apps and
   // saves a click in the demo.
   useEffect(() => {
@@ -427,7 +477,11 @@ export function EditorClient({ id }: { id: string }) {
           )}
           {tab === "assets" && (
             <div className="p-3 space-y-4">
-              <SourceUpload projectId={id} />
+              <SourceUpload
+                projectId={id}
+                disabled={renderInFlight}
+                onEditSource={startEditSource}
+              />
               <hr className="border-muted/30" />
               <StockSearch />
             </div>
