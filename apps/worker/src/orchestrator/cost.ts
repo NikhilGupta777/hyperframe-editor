@@ -11,12 +11,12 @@ import type { JobEvent } from "@hyperframe-editor/queue";
 export const RATES = {
   // $/M tokens
   text: {
-    "gemini-3.1-pro": { in: 1.25, out: 10.0 },
+    "gemini-3.1-pro-preview": { in: 1.25, out: 10.0 },
     "gemini-2.5-flash": { in: 0.075, out: 0.3 },
   },
   // $/image
   image: {
-    "gemini-3-pro-image": 0.12,
+    "gemini-3-pro-image-preview": 0.12,
     "imagen-4.0-fast-generate-001": 0.02,
   },
   // notional render-time bookkeeping
