@@ -230,7 +230,7 @@ router.put("/projects/:id/composition", async (req, res) => {
   const parsed = await readJson(req, res, PutCompositionHtmlBody);
   if (!parsed) return;
   try {
-    await saveCompositionHtml(id, parsed.html);
+    await saveCompositionHtml(id, parsed.html, projectCanvas(id));
     return res.json({ ok: true, persisted: "ephemeral" });
   } catch (e) {
     return serverError(res, e);

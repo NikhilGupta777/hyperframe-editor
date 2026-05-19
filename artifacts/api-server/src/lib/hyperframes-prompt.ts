@@ -1,12 +1,12 @@
 /**
- * HyperFrames system prompt — based on the official HeyGen documentation:
+ * HyperFrames system prompt - based on the official HeyGen documentation:
  * https://hyperframes.heygen.com
  * https://github.com/heygen-com/hyperframes
  *
  * Core contract: Rule of Three
- *  1. Root element — data-composition-id, data-width, data-height, data-start, data-duration
- *  2. Timed elements — class="clip", data-start, data-duration, data-track-index
- *  3. Animations — GSAP timelines { paused: true } registered on window.__timelines["<id>"]
+ *  1. Root element - data-composition-id, data-width, data-height, data-start, data-duration
+ *  2. Timed elements - class="clip", data-start, data-duration, data-track-index
+ *  3. Animations - GSAP timelines { paused: true } registered on window.__timelines["<id>"]
  *
  * CRITICAL: paused: true is required. The HyperFrames renderer seeks the timeline
  * frame-by-frame; it controls playback. Do NOT use paused: false.
@@ -19,11 +19,11 @@ Docs: https://hyperframes.heygen.com | GitHub: https://github.com/heygen-com/hyp
 You must produce a single, complete, self-contained HTML file.
 The renderer (Puppeteer + FFmpeg) loads this file and seeks through it frame-by-frame.
 
-═══════════════════════════════════════
+=======================================
   THE RULE OF THREE  (never violate this)
-═══════════════════════════════════════
+=======================================
 
-RULE 1 — Root element
+RULE 1 - Root element
   <div id="root"
     data-composition-id="unique-kebab-id"
     data-start="0"
@@ -31,26 +31,26 @@ RULE 1 — Root element
     data-height="CANVAS_HEIGHT"
     data-duration="TOTAL_SECONDS">
 
-RULE 2 — Every visible timed element
+RULE 2 - Every visible timed element
   <div class="clip"
     data-start="N"
     data-duration="N"
     data-track-index="N">
 
-RULE 3 — GSAP timelines
-  const tl = gsap.timeline({ paused: true });   ← ALWAYS paused:true
+RULE 3 - GSAP timelines
+  const tl = gsap.timeline({ paused: true });   <- ALWAYS paused:true
   window.__timelines["<data-composition-id>"] = tl;
 
-═══════════════════════════════════════
+=======================================
   COMPLETE COMPOSITION TEMPLATE
-═══════════════════════════════════════
+=======================================
 
 \`\`\`html
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <!-- GSAP is required — load from CDN -->
+  <!-- GSAP is required - load from CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -91,7 +91,7 @@ RULE 3 — GSAP timelines
 
   </div><!-- /#root -->
 
-  <!-- Rule 3: GSAP timeline — paused:true, keyed by data-composition-id -->
+  <!-- Rule 3: GSAP timeline - paused:true, keyed by data-composition-id -->
   <script>
     window.__timelines = window.__timelines || {};
     const tl = gsap.timeline({ paused: true }); // renderer seeks this; preview auto-plays
@@ -107,11 +107,11 @@ RULE 3 — GSAP timelines
 </html>
 \`\`\`
 
-═══════════════════════════════════════
+=======================================
   CLIP TYPES
-═══════════════════════════════════════
+=======================================
 
-BLOCK (div/span/p) — text overlays, motion graphics:
+BLOCK (div/span/p) - text overlays, motion graphics:
   class="clip" REQUIRED | data-start, data-duration, data-track-index REQUIRED
 
 IMAGE (img):
@@ -129,9 +129,9 @@ AUDIO (audio):
   DO NOT add class="clip"
   <audio data-start="0" data-volume="0.6" data-track-index="0" src="..."></audio>
 
-═══════════════════════════════════════
+=======================================
   CANVAS FORMATS
-═══════════════════════════════════════
+=======================================
 
   YouTube Essay:          data-width="1920" data-height="1080"  (16:9)
   TikTok / Reels / Hook:  data-width="1080" data-height="1920"  (9:16)
@@ -139,38 +139,57 @@ AUDIO (audio):
   Podcast Clip:           data-width="1080" data-height="1920"  (9:16)
   Educational:            data-width="1920" data-height="1080"  (16:9)
 
-═══════════════════════════════════════
+=======================================
   ABSOLUTE RULES
-═══════════════════════════════════════
+=======================================
 
-1. GSAP timeline MUST be { paused: true } — the renderer seeks it; preview shim plays it.
+1. GSAP timeline MUST be { paused: true } - the renderer seeks it; preview shim plays it.
 2. window.__timelines key MUST exactly match data-composition-id on the root div.
 3. Root div MUST have all 5 attrs: data-composition-id, data-start, data-width, data-height, data-duration.
 4. Every clip MUST have data-start, data-duration, data-track-index.
 5. Same-track clips MUST NOT overlap in time.
-6. NO setTimeout / setInterval / requestAnimationFrame — these break deterministic seeking.
+6. NO setTimeout / setInterval / requestAnimationFrame - these break deterministic seeking.
 7. GSAP is the only animation runtime allowed.
 8. Output ONLY the raw HTML starting with <!DOCTYPE html>. No markdown, no explanation.
 9. Append JSON_SUMMARY on the final line after </html>.
 `;
 
+export interface PresetCanvas {
+  width: number;
+  height: number;
+  fps: number;
+}
+
+export const PRESET_CANVASES: Record<string, PresetCanvas> = {
+  "youtube-essay": { width: 1920, height: 1080, fps: 30 },
+  "tiktok-hook": { width: 1080, height: 1920, fps: 30 },
+  "product-promo": { width: 1080, height: 1080, fps: 30 },
+  "podcast-clip": { width: 1080, height: 1920, fps: 30 },
+  "educational-explainer": { width: 1920, height: 1080, fps: 30 },
+  "devotional-reel": { width: 1080, height: 1920, fps: 30 },
+};
+
+export function canvasForPreset(presetId: string): PresetCanvas {
+  return PRESET_CANVASES[presetId] ?? PRESET_CANVASES["tiktok-hook"]!;
+}
+
 export function buildComposeBrief(prompt: string, presetId: string): string {
-  const presetDescriptions: Record<string, string> = {
-    "youtube-essay":         "landscape YouTube essay video — canvas 1920×1080 (data-width=1920, data-height=1080)",
-    "tiktok-hook":           "portrait TikTok/Reels short — canvas 1080×1920 (data-width=1080, data-height=1920)",
-    "product-promo":         "square product promo — canvas 1080×1080 (data-width=1080, data-height=1080)",
-    "podcast-clip":          "portrait podcast clip — canvas 1080×1920 (data-width=1080, data-height=1920)",
-    "educational-explainer": "landscape educational explainer — canvas 1920×1080 (data-width=1920, data-height=1080)",
-    "devotional-reel":       "portrait devotional reel — canvas 1080×1920 (data-width=1080, data-height=1920)",
-  };
-  const desc = presetDescriptions[presetId] ?? "video";
+  const canvas = canvasForPreset(presetId);
+  const desc = `${presetId} video - canvas ${canvas.width}x${canvas.height} (data-width=${canvas.width}, data-height=${canvas.height})`;
   return `Create a HyperFrames HTML composition for a ${desc}.
 
 User prompt: ${prompt}
 
-Required: follow the Rule of Three exactly. Include GSAP CDN script. Use paused:true on all timelines. Append JSON_SUMMARY after </html>.`;
+Required:
+- Root data-width MUST be "${canvas.width}".
+- Root data-height MUST be "${canvas.height}".
+- CSS #root width/height MUST be ${canvas.width}px by ${canvas.height}px.
+- Preserve that exact aspect ratio in all layout and media object-fit rules.
+- Follow the Rule of Three exactly.
+- Include GSAP CDN script.
+- Use paused:true on all timelines.
+- Append JSON_SUMMARY after </html>.`;
 }
-
 export function buildTweakBrief(prompt: string, currentHtml: string): string {
   const snippet =
     currentHtml.length > 3500

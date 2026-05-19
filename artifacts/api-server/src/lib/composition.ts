@@ -25,6 +25,32 @@ const GSAP_CDN_SCRIPT = `<script src="https://cdnjs.cloudflare.com/ajax/libs/gsa
  */
 const AUTO_PLAY_SHIM = `<script id="__hf-preview-shim">
 (function() {
+  function fitRootToViewport() {
+    var root = document.querySelector('[data-composition-id]');
+    if (!root) return;
+    var w = Number(root.getAttribute('data-width')) || root.offsetWidth || 1080;
+    var h = Number(root.getAttribute('data-height')) || root.offsetHeight || 1920;
+    var scale = Math.min(window.innerWidth / w, window.innerHeight / h);
+    document.documentElement.style.margin = '0';
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.margin = '0';
+    document.body.style.width = '100vw';
+    document.body.style.height = '100vh';
+    document.body.style.overflow = 'hidden';
+    document.body.style.background = document.body.style.background || '#000';
+    root.style.width = w + 'px';
+    root.style.height = h + 'px';
+    root.style.position = 'absolute';
+    root.style.left = '50%';
+    root.style.top = '50%';
+    root.style.transformOrigin = 'center center';
+    if (!root.dataset.hfOriginalTransform) {
+      root.dataset.hfOriginalTransform = root.style.transform || '';
+    }
+    var originalTransform = root.dataset.hfOriginalTransform;
+    root.style.transform = 'translate(-50%, -50%) scale(' + scale + ')' +
+      (originalTransform ? ' ' + originalTransform : '');
+  }
   function playAllTimelines() {
     var tls = window.__timelines;
     var played = 0;
@@ -46,6 +72,8 @@ const AUTO_PLAY_SHIM = `<script id="__hf-preview-shim">
     });
   }
   function init() {
+    fitRootToViewport();
+    window.addEventListener('resize', fitRootToViewport);
     // First try — timelines may already be set up
     setTimeout(playAllTimelines, 50);
     // Second try — in case GSAP CDN was slow
@@ -128,13 +156,44 @@ function injectDepsIfMissing(html: string): string {
   return html;
 }
 
+function replaceOrAddAttr(tag: string, attr: string, value: string): string {
+  const attrRe = new RegExp(`\\s${attr}="[^"]*"`);
+  if (attrRe.test(tag)) return tag.replace(attrRe, ` ${attr}="${value}"`);
+  return tag.replace(/>$/, ` ${attr}="${value}">`);
+}
+
+function replaceRootStyleDimensions(html: string, canvas: CanvasHint): string {
+  return html.replace(/(#root\s*\{)([^}]*)\}/i, (_match, open: string, body: string) => {
+    const cleaned = String(body)
+      .replace(/width\s*:\s*[^;]+;?/i, "")
+      .replace(/height\s*:\s*[^;]+;?/i, "")
+      .trim();
+    return `${open} width:${canvas.width}px; height:${canvas.height}px; ${cleaned}}`;
+  });
+}
+
+export function normalizeHtmlForCanvas(rawHtml: string, canvas: CanvasHint): string {
+  let html = rawHtml.replace(/<([a-z][\w:-]*)\b(?=[^>]*data-composition-id=)[^>]*>/i, (tag) => {
+    let next = String(tag);
+    next = replaceOrAddAttr(next, "data-width", String(canvas.width));
+    next = replaceOrAddAttr(next, "data-height", String(canvas.height));
+    next = replaceOrAddAttr(next, "data-start", "0");
+    return next;
+  });
+  html = replaceRootStyleDimensions(html, canvas);
+  return html;
+}
+
 export interface CanvasHint {
   width: number;
   height: number;
   fps: number;
 }
 
-function buildPlaceholderHtml(): string {
+function buildPlaceholderHtml(
+  projectId = "placeholder",
+  canvas: CanvasHint = { width: 1080, height: 1920, fps: 30 },
+): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -142,15 +201,23 @@ function buildPlaceholderHtml(): string {
   <style>
     body { margin:0; background:#0b0f17; color:#f5f7fb;
            font-family:system-ui,sans-serif;
-           display:flex; align-items:center; justify-content:center;
-           height:100vh; flex-direction:column; gap:0.5rem; }
+           width:100vw; height:100vh; overflow:hidden; }
+    #root { width:${canvas.width}px; height:${canvas.height}px; position:relative; overflow:hidden;
+            display:flex; align-items:center; justify-content:center; flex-direction:column; gap:0.5rem; }
     .hint { font-size:1.1rem; font-weight:700; }
     .sub  { font-size:0.8rem; opacity:0.5; }
   </style>
 </head>
 <body>
-  <div class="hint">No composition yet</div>
-  <div class="sub">Click Generate to create one</div>
+  <div id="root"
+    data-composition-id="${projectId}"
+    data-start="0"
+    data-width="${canvas.width}"
+    data-height="${canvas.height}"
+    data-duration="0">
+    <div class="hint">No composition yet</div>
+    <div class="sub">${canvas.width}x${canvas.height} - Click Generate to create one</div>
+  </div>
 </body>
 </html>`;
 }
@@ -213,15 +280,20 @@ export async function getOrBootstrapComposition(
   }
 
   const composition = buildPlaceholderAst(projectId, canvas);
-  const html = buildPlaceholderHtml();
+  const html = buildPlaceholderHtml(projectId, canvas);
   ephemeralAst.set(projectId, composition);
   ephemeralHtml.set(projectId, html);
   return { composition, html, bootstrapped: true };
 }
 
-export async function saveCompositionHtml(projectId: string, rawHtml: string): Promise<void> {
-  const { width, height, duration, compositionId } = parseRootAttrs(rawHtml);
-  const { clipCount, maxEnd } = parseClipsFromHtml(rawHtml);
+export async function saveCompositionHtml(
+  projectId: string,
+  rawHtml: string,
+  canvasHint?: CanvasHint,
+): Promise<void> {
+  const normalizedHtml = canvasHint ? normalizeHtmlForCanvas(rawHtml, canvasHint) : rawHtml;
+  const { width, height, duration, compositionId } = parseRootAttrs(normalizedHtml);
+  const { clipCount, maxEnd } = parseClipsFromHtml(normalizedHtml);
 
   const composition: Composition = (
     ephemeralAst.get(projectId) ?? buildPlaceholderAst(projectId)
@@ -234,7 +306,7 @@ export async function saveCompositionHtml(projectId: string, rawHtml: string): P
   composition.id        = compositionId || projectId;
 
   ephemeralAst.set(projectId, composition);
-  ephemeralHtml.set(projectId, rawHtml);
+  ephemeralHtml.set(projectId, normalizedHtml);
   void clipCount;
 }
 
@@ -242,7 +314,7 @@ export async function saveComposition(
   projectId: string,
   composition: Composition,
 ): Promise<{ html: string }> {
-  const existing = ephemeralHtml.get(projectId) ?? buildPlaceholderHtml();
+  const existing = ephemeralHtml.get(projectId) ?? buildPlaceholderHtml(projectId, composition.canvas);
   ephemeralAst.set(projectId, composition);
   ephemeralHtml.set(projectId, existing);
   return { html: existing };

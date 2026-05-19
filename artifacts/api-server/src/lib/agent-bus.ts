@@ -17,9 +17,11 @@ import {
   HYPERFRAMES_SYSTEM_PROMPT,
   buildComposeBrief,
   buildTweakBrief,
+  canvasForPreset,
 } from "./hyperframes-prompt";
 import {
   getOrBootstrapComposition,
+  normalizeHtmlForCanvas,
   saveCompositionHtml,
   parseRootAttrs,
   parseClipsFromHtml,
@@ -127,7 +129,9 @@ async function runAgentTurn(turnId: string, body: AgentTurnInput) {
 
     // ── Save composition ──────────────────────────────────────────────────
     emit({ type: "step", step: "saving-composition", status: "running" });
-    await saveCompositionHtml(body.projectId, compositionHtml);
+    const presetCanvas = canvasForPreset(body.presetId);
+    compositionHtml = normalizeHtmlForCanvas(compositionHtml, presetCanvas);
+    await saveCompositionHtml(body.projectId, compositionHtml, presetCanvas);
     // HTML is rewritten for browser on every GET /api/projects/:id/composition request
     emit({ type: "step", step: "saving-composition", status: "succeeded" });
     emit({ type: "progress", pct: 100 });

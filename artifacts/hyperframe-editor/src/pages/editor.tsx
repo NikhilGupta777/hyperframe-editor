@@ -22,7 +22,7 @@ import { PRESETS } from "@/lib/presets";
 import type { Composition } from "@/types/composition";
 
 // ---------------------------------------------------------------------------
-// localStorage helpers — persist chat events per project so they survive
+// localStorage helpers - persist chat events per project so they survive
 // page refreshes and back-navigation.
 // ---------------------------------------------------------------------------
 function loadStoredEvents(projectId: string): AgentEvent[] {
@@ -40,7 +40,7 @@ function saveStoredEvents(projectId: string, events: AgentEvent[]) {
     // Keep only the last 500 events to avoid ballooning storage
     const trimmed = events.slice(-500);
     localStorage.setItem(`hf-events-${projectId}`, JSON.stringify(trimmed));
-  } catch { /* quota exceeded — ignore */ }
+  } catch { /* quota exceeded - ignore */ }
 }
 
 export default function EditorPage({ id }: { id: string }) {
@@ -48,6 +48,7 @@ export default function EditorPage({ id }: { id: string }) {
     "Create a short punchy TikTok-style video about the power of AI in everyday life. Include bold text overlays, dynamic transitions, and upbeat energy.",
   );
   const [presetId, setPresetId] = useState("tiktok-hook");
+  const [projectLoaded, setProjectLoaded] = useState(false);
   const [events, setEvents] = useState<AgentEvent[]>(() => loadStoredEvents(id));
   const [activeStreamId, setActiveStreamId] = useState<string | null>(null);
   const [streamDone, setStreamDone] = useState(true);
@@ -64,6 +65,8 @@ export default function EditorPage({ id }: { id: string }) {
   });
   const [tweakPrompt, setTweakPrompt] = useState("");
   const [mobileView, setMobileView] = useState<"controls" | "preview">("controls");
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+  const [previewBox, setPreviewBox] = useState({ width: 320, height: 568 });
 
   // ------------------------------------------------------------------
   // Persist events to localStorage whenever they change
@@ -86,6 +89,36 @@ export default function EditorPage({ id }: { id: string }) {
     return "9/16";
   }, [composition, isBootstrapped, presetId]);
 
+  const previewRatio = useMemo(() => {
+    const [w, h] = previewAspectRatio.split("/").map(Number);
+    return w && h ? w / h : 9 / 16;
+  }, [previewAspectRatio]);
+
+  useEffect(() => {
+    const el = previewContainerRef.current;
+    if (!el) return;
+    const update = () => {
+      const rect = el.getBoundingClientRect();
+      const availableWidth = Math.max(1, rect.width);
+      const availableHeight = Math.max(1, rect.height);
+      if (availableWidth / availableHeight > previewRatio) {
+        setPreviewBox({
+          width: Math.floor(availableHeight * previewRatio),
+          height: Math.floor(availableHeight),
+        });
+      } else {
+        setPreviewBox({
+          width: Math.floor(availableWidth),
+          height: Math.floor(availableWidth / previewRatio),
+        });
+      }
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [previewRatio]);
+
   const presets = useMemo(() => Object.values(PRESETS), []);
 
   const gateStatus = useMemo<Record<string, "pass" | "warn" | "fail" | "skip"> | null>(() => {
@@ -103,21 +136,27 @@ export default function EditorPage({ id }: { id: string }) {
   const runningCostUsd = costSnapshot.spentUsd + inFlightCostUsd;
 
   // ------------------------------------------------------------------
-  // Load project details — sets the correct presetId and prompt hint
+  // Load project details - sets the correct presetId and prompt hint
   // ------------------------------------------------------------------
   useEffect(() => {
     void (async () => {
       try {
         const r = await fetch(`/api/projects/${id}`, { cache: "no-store" });
-        if (!r.ok) return;
+        if (!r.ok) {
+          setProjectLoaded(true);
+          return;
+        }
         const j = (await r.json()) as { project?: { preset?: string; title?: string } };
         if (j.project?.preset) setPresetId(j.project.preset);
-      } catch { /* ignore — use default */ }
+        setProjectLoaded(true);
+      } catch {
+        setProjectLoaded(true);
+      }
     })();
   }, [id]);
 
   // ------------------------------------------------------------------
-  // Load composition AST — also tracks bootstrapped state
+  // Load composition AST - also tracks bootstrapped state
   // ------------------------------------------------------------------
   const loadComposition = useCallback(async () => {
     try {
@@ -213,13 +252,13 @@ export default function EditorPage({ id }: { id: string }) {
   const renderInFlight = !streamDone;
 
   async function startGeminiAgent(kind: "compose" | "tweak", overridePrompt?: string) {
-    if (renderInFlight) return;
+    if (renderInFlight || !projectLoaded) return;
     const p = overridePrompt ?? prompt;
     if (!p.trim()) return;
 
     setEvents((prev) => [
       ...prev,
-      { type: "log", level: "info", msg: `▶ ${kind === "compose" ? "Generating" : "Tweaking"}: ${p.slice(0, 80)}${p.length > 80 ? "…" : ""}` },
+      { type: "log", level: "info", msg: `> ${kind === "compose" ? "Generating" : "Tweaking"}: ${p.slice(0, 80)}${p.length > 80 ? "..." : ""}` },
     ]);
 
     try {
@@ -259,30 +298,30 @@ export default function EditorPage({ id }: { id: string }) {
     await startGeminiAgent("tweak", `Source video: ${source.storageUri}\n\n${direction}`);
   }
 
-  // ------------------------------------------------------------------
-  // Render MP4 — show an informational message in the chat tab instead
-  // of silently doing nothing. Full rendering requires @hyperframes/engine.
-  // ------------------------------------------------------------------
-  function handleRenderMp4() {
+  async function handleExportHtml() {
+    const res = await fetch(`/api/projects/${id}/composition`, { cache: "no-store" });
+    if (!res.ok) {
+      setEvents((prev) => [...prev, { type: "error", message: `Export failed: HTTP ${res.status}` }]);
+      return;
+    }
+    const html = await res.text();
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `hyperframes-${id}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
     setTab("chat");
-    setMobileView("controls");
-    const preset = PRESETS[presetId];
-    const dims = preset ? `${preset.canvas.width}×${preset.canvas.height}` : "canvas";
     setEvents((prev) => [
       ...prev,
       {
         type: "log",
         level: "info",
-        msg: [
-          `⬡ MP4 export — your composition HTML is ready (${dims}).`,
-          `To render to MP4 locally, install @hyperframes/engine and run:`,
-          `  npx hyperframes render --input composition.html --output out.mp4`,
-          `Cloud rendering (one-click export) is coming soon.`,
-        ].join("\n"),
+        msg: "Exported the current HyperFrames composition HTML. MP4 rendering still needs a render worker.",
       },
     ]);
   }
-
   useEffect(() => {
     const handler = (ev: KeyboardEvent) => {
       if (!(ev.metaKey || ev.ctrlKey) || ev.key !== "Enter") return;
@@ -297,7 +336,7 @@ export default function EditorPage({ id }: { id: string }) {
   return (
     <main className="flex flex-col h-[100dvh] md:grid md:h-screen md:grid-cols-[400px_1fr] overflow-hidden">
 
-      {/* ── Mobile-only top toggle bar ── */}
+      {/* -- Mobile-only top toggle bar -- */}
       <div className="flex shrink-0 border-b border-muted/30 md:hidden">
         <button
           onClick={() => setMobileView("controls")}
@@ -316,13 +355,13 @@ export default function EditorPage({ id }: { id: string }) {
           {renderInFlight ? (
             <span className="flex items-center justify-center gap-1.5">
               <span className="inline-block w-2.5 h-2.5 rounded-full border-2 border-accent border-t-transparent animate-spin" />
-              Generating…
+              Generating...
             </span>
           ) : "Preview"}
         </button>
       </div>
 
-      {/* ── Left sidebar ── */}
+      {/* -- Left sidebar -- */}
       <section
         className={`flex-col border-r border-muted/30 overflow-hidden ${
           mobileView === "controls" ? "flex flex-1" : "hidden md:flex"
@@ -353,7 +392,7 @@ export default function EditorPage({ id }: { id: string }) {
               value={presetId}
               onChange={(e) => setPresetId(e.target.value)}
               className="w-full rounded bg-ink/60 border border-muted/40 px-3 py-2 text-sm"
-              disabled={renderInFlight}
+              disabled={renderInFlight || !projectLoaded}
             >
               {presets.map((p) => (
                 <option key={p.id} value={p.id}>{p.label}</option>
@@ -363,7 +402,7 @@ export default function EditorPage({ id }: { id: string }) {
 
           <label className="block">
             <span className="block text-[10px] uppercase tracking-wider opacity-60 pb-1">
-              Prompt <span className="opacity-50 hidden sm:inline">(⌘/Ctrl+Enter to generate)</span>
+              Prompt <span className="opacity-50 hidden sm:inline">(Cmd/Ctrl+Enter to generate)</span>
             </span>
             <textarea
               value={prompt}
@@ -371,22 +410,22 @@ export default function EditorPage({ id }: { id: string }) {
               rows={4}
               className="w-full rounded bg-ink/60 border border-muted/40 px-3 py-2 text-sm resize-none"
               disabled={renderInFlight}
-              placeholder="Describe the video you want to create…"
+              placeholder="Describe the video you want to create..."
             />
           </label>
 
           <button
             onClick={() => void startGeminiAgent("compose")}
-            disabled={renderInFlight || prompt.trim().length < 3}
+            disabled={renderInFlight || !projectLoaded || prompt.trim().length < 3}
             className="w-full rounded bg-accent text-ink font-semibold py-3 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2 text-sm"
           >
             {renderInFlight ? (
               <>
                 <span className="inline-block w-3 h-3 rounded-full border-2 border-ink border-t-transparent animate-spin" />
-                Generating…
+                Generating...
               </>
             ) : (
-              "✦ Generate with Gemini"
+              "* Generate with Gemini"
             )}
           </button>
 
@@ -428,7 +467,7 @@ export default function EditorPage({ id }: { id: string }) {
                 <input
                   value={tweakPrompt}
                   onChange={(e) => setTweakPrompt(e.target.value)}
-                  placeholder="Ask Gemini to tweak the composition…"
+                  placeholder="Ask Gemini to tweak the composition..."
                   className="flex-1 rounded bg-ink/60 border border-muted/40 px-3 py-2 text-sm min-w-0"
                   disabled={renderInFlight}
                 />
@@ -469,7 +508,7 @@ export default function EditorPage({ id }: { id: string }) {
         </div>
       </section>
 
-      {/* ── Right: preview + timeline ── */}
+      {/* -- Right: preview + timeline -- */}
       <section
         className={`flex-col overflow-hidden ${
           mobileView === "preview" ? "flex flex-1" : "hidden md:flex"
@@ -479,7 +518,7 @@ export default function EditorPage({ id }: { id: string }) {
           <span className="font-medium">Preview</span>
           <div className="flex items-center gap-2 text-xs">
             {renderInFlight && (
-              <span className="text-accent animate-pulse hidden sm:inline">Generating…</span>
+              <span className="text-accent animate-pulse hidden sm:inline">Generating...</span>
             )}
             <button
               onClick={() => {
@@ -494,28 +533,39 @@ export default function EditorPage({ id }: { id: string }) {
               className="opacity-60 hover:opacity-100 px-2 py-1"
               title="Reload preview"
             >
-              ↺ reload
+              Reload
             </button>
             <button
-              onClick={handleRenderMp4}
+              onClick={handleExportHtml}
               disabled={renderInFlight}
-              title="Export composition to MP4"
+              title="Export composition HTML"
               className="rounded border border-muted/40 bg-ink/60 px-3 py-1.5 font-medium text-[11px] uppercase tracking-wide hover:border-accent/60 hover:text-accent transition-colors disabled:opacity-30"
             >
-              ⬡ Render MP4
+              Export HTML
             </button>
           </div>
         </div>
 
-        <div className="flex-1 grid place-items-center bg-black/40 p-2 sm:p-4 overflow-hidden min-h-0">
-          <iframe
-            key={previewUrl}
-            src={previewUrl}
-            title="composition preview"
-            sandbox="allow-scripts"
-            className="h-full max-h-full w-full border border-muted/20 bg-ink rounded shadow-xl"
-            style={{ aspectRatio: previewAspectRatio }}
-          />
+        <div
+          ref={previewContainerRef}
+          className="flex-1 grid place-items-center bg-black/40 p-2 sm:p-4 overflow-hidden min-h-0"
+        >
+          <div
+            className="relative border border-muted/20 bg-ink rounded shadow-xl overflow-hidden"
+            style={{
+              width: previewBox.width,
+              height: previewBox.height,
+              aspectRatio: previewAspectRatio,
+            }}
+          >
+            <iframe
+              key={previewUrl}
+              src={previewUrl}
+              title="composition preview"
+              sandbox="allow-scripts"
+              className="absolute inset-0 h-full w-full border-0 bg-ink"
+            />
+          </div>
         </div>
 
         <div className="shrink-0">
