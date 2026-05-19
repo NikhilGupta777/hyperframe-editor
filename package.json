@@ -1,26 +1,16 @@
 {
-  "name": "hyperframe-editor",
-  "private": true,
+  "name": "workspace",
   "version": "0.0.0",
-  "description": "AI-native video-editor agent built on HyperFrames + Vertex AI Gemini 3.1 Pro.",
   "license": "MIT",
-  "type": "module",
-  "engines": {
-    "node": ">=22"
-  },
-  "packageManager": "pnpm@9.15.0",
   "scripts": {
-    "build": "turbo run build",
-    "dev": "turbo run dev --parallel",
-    "typecheck": "turbo run typecheck",
-    "lint": "turbo run lint",
-    "test": "turbo run test",
-    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\"",
-    "clean": "turbo run clean && rm -rf node_modules"
+    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
+    "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "typecheck:libs": "tsc --build",
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },
+  "private": true,
   "devDependencies": {
-    "prettier": "^3.4.2",
-    "turbo": "^2.5.6",
-    "typescript": "^5.7.3"
+    "prettier": "^3.8.3",
+    "typescript": "~5.9.3"
   }
 }

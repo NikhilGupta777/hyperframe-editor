@@ -1,0 +1,38 @@
+@import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme inline {
+  --color-ink: #0b0f17;
+  --color-paper: #f5f7fb;
+  --color-accent: #ff3df8;
+  --color-muted: #7c8aa6;
+
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-display: 'Archivo Black', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html, body, #root {
+  height: 100%;
+  background: #0b0f17;
+  color: #f5f7fb;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+select {
+  color: #f5f7fb;
+  background-color: rgba(11, 15, 23, 0.6);
+}
+
+option {
+  background-color: #0b0f17;
+  color: #f5f7fb;
+}

@@ -1,0 +1,26 @@
+{
+  "name": "hyperframe-editor",
+  "private": true,
+  "version": "0.0.0",
+  "description": "AI-native video-editor agent built on HyperFrames + Vertex AI Gemini 3.1 Pro.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\"",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2",
+    "turbo": "^2.5.6",
+    "typescript": "^5.7.3"
+  }
+}
