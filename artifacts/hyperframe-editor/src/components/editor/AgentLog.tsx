@@ -71,7 +71,7 @@ function Row({ e }: { e: AgentEvent }): ReactNode {
     return (
       <div className="opacity-70">
         <div className="flex items-center justify-between text-[11px]">
-          <span>render</span>
+          <span>generating</span>
           <span className="font-mono">
             {e.pct}%
             {e.frame !== undefined && e.total !== undefined

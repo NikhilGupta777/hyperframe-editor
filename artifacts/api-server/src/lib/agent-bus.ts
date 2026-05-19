@@ -1,6 +1,16 @@
 /**
  * Shared in-memory event bus for AI agent turns.
  * Works with both Replit Gemini proxy (local) and Vertex AI (production).
+ *
+ * Gate checks implement the HyperFrames "Rule of Three":
+ *  G1 — Root element has data-composition-id, data-width, data-height
+ *  G2 — Root element has data-start and data-duration
+ *  G3 — All .clip elements have data-start, data-duration, data-track-index
+ *  G4 — GSAP timeline registered on window.__timelines (paused:true)
+ *  G5 — No wall-clock animations (setTimeout/setInterval/rAF)
+ *  G6 — Canvas dimensions match common presets
+ *  G7 — Audio present (optional — warn only)
+ *  G8 — No off-origin media that would break headless render
  */
 import { getAiClient } from "./ai-client";
 import {
@@ -11,7 +21,8 @@ import {
 import {
   getOrBootstrapComposition,
   saveCompositionHtml,
-  rewriteHtmlForBrowser,
+  parseRootAttrs,
+  parseClipsFromHtml,
 } from "./composition";
 import { logger } from "./logger";
 
@@ -40,13 +51,12 @@ async function runAgentTurn(turnId: string, body: AgentTurnInput) {
   };
 
   try {
-    // Resolve the AI client at request time — throws a clean error if not configured
     const { ai, model: AI_MODEL, provider } = getAiClient();
 
     emit({ type: "log", level: "info", msg: `provider: ${provider} · model: ${AI_MODEL}` });
     emit({ type: "step", step: "initializing", status: "running" });
 
-    // Load existing composition for tweak context
+    // Load existing composition HTML for tweak context
     let contextHtml = "";
     if (body.kind === "tweak") {
       const { html } = await getOrBootstrapComposition(body.projectId);
@@ -94,14 +104,14 @@ async function runAgentTurn(turnId: string, body: AgentTurnInput) {
       "agent turn: generation complete",
     );
 
-    // ── Extract HTML ─────────────────────────────────────────────────────
+    // ── Extract HTML ──────────────────────────────────────────────────────
     let compositionHtml = fullResponse.trim();
 
-    // Strip markdown code fences if model wrapped the output
+    // Strip markdown fences if the model wrapped output anyway
     const fenceMatch = compositionHtml.match(/```(?:html)?\n?([\s\S]*?)```/);
     if (fenceMatch) compositionHtml = fenceMatch[1]!.trim();
 
-    // Parse optional JSON_SUMMARY the model may have appended
+    // Parse optional JSON_SUMMARY the model appended after </html>
     let summaryJson: { clips?: number; duration?: number; summary?: string } = {};
     const summaryIdx = compositionHtml.indexOf("JSON_SUMMARY::");
     if (summaryIdx !== -1) {
@@ -111,38 +121,96 @@ async function runAgentTurn(turnId: string, body: AgentTurnInput) {
 
     if (!compositionHtml.includes("<html") && !compositionHtml.includes("<!DOCTYPE")) {
       throw new Error(
-        "The model returned unexpected output instead of HTML. Try rephrasing your prompt and click Generate again.",
+        "Gemini returned unexpected output instead of HTML. Try rephrasing your prompt.",
       );
     }
 
-    // ── Save composition ─────────────────────────────────────────────────
+    // ── Save composition ──────────────────────────────────────────────────
     emit({ type: "step", step: "saving-composition", status: "running" });
     await saveCompositionHtml(body.projectId, compositionHtml);
-    rewriteHtmlForBrowser(compositionHtml, body.projectId);
+    // HTML is rewritten for browser on every GET /api/projects/:id/composition request
     emit({ type: "step", step: "saving-composition", status: "succeeded" });
     emit({ type: "progress", pct: 100 });
 
-    // ── Quality gate checks ──────────────────────────────────────────────
+    // ── HyperFrames Rule of Three gate checks ─────────────────────────────
+    // Based on official HyperFrames lint rules:
+    // https://hyperframes.heygen.com | github.com/heygen-com/hyperframes
+
+    const rootAttrs = parseRootAttrs(compositionHtml);
+    const { clipCount, maxEnd } = parseClipsFromHtml(compositionHtml);
+    const totalDuration =
+      rootAttrs.duration > 0 ? rootAttrs.duration
+      : (summaryJson.duration ?? maxEnd);
+
+    // G1: Root element has the three required attrs (data-composition-id, data-width, data-height)
+    const hasCompId   = /data-composition-id="[^"]+"/.test(compositionHtml);
+    const hasWidth    = /data-width="[\d]+"/.test(compositionHtml);
+    const hasHeight   = /data-height="[\d]+"/.test(compositionHtml);
+    const g1Pass      = hasCompId && hasWidth && hasHeight;
+
+    // G2: Root element has data-start and data-duration (timing contract)
+    const rootHasStart = /data-start="0"/.test(compositionHtml);
+    const rootHasDur   = /data-duration="[\d.]+"/.test(compositionHtml);
+    const g2Pass       = rootHasStart && rootHasDur;
+
+    // G3: Every .clip element has all three required timing attributes
+    // We check: clips found AND maxEnd > 0 (implies data-start + data-duration)
+    const hasTrackIndex = compositionHtml.includes("data-track-index=");
+    const g3Pass = clipCount > 0 && maxEnd > 0 && hasTrackIndex;
+
+    // G4: GSAP timeline registered on window.__timelines with paused:true
+    const hasTimelines  = compositionHtml.includes("window.__timelines");
+    const hasPausedTrue = /paused\s*:\s*true/.test(compositionHtml);
+    const g4Pass = hasTimelines && hasPausedTrue;
+
+    // G5: No wall-clock animations (breaks deterministic seeking)
+    const hasWallClock = /setTimeout|setInterval|requestAnimationFrame/.test(compositionHtml);
+    const g5Pass = !hasWallClock;
+
+    // G6: Canvas dimensions present and reasonable (Rule of Three)
+    const w = rootAttrs.width;
+    const h = rootAttrs.height;
+    const validDims = [
+      [1920, 1080], [1080, 1920], [1080, 1080],
+      [1280, 720],  [720, 1280],
+    ];
+    const g6Pass = validDims.some(([vw, vh]) => w === vw && h === vh);
+
+    // G7: Audio present (informational — warn if missing)
+    const hasAudio = compositionHtml.includes("<audio");
+    const g7Pass = hasAudio; // warn if absent
+
+    // G8: No off-origin media URLs that would break headless render
+    // Allow: cdnjs.cloudflare.com, cdn.jsdelivr.net, fonts.googleapis.com, data: URIs
+    const offOriginRe = /<(?:img|video|source)\b[^>]+src=["']https?:\/\/(?!cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net|fonts\.gstatic\.com|fonts\.googleapis\.com)/.test(compositionHtml);
+    const g8Pass = !offOriginRe;
+
     const gates: Record<string, "pass" | "warn" | "fail"> = {
-      G1: compositionHtml.includes("data-start")        ? "pass" : "fail",
-      G2: compositionHtml.includes("data-track-index")  ? "pass" : "warn",
-      G3: (summaryJson.duration ?? 0) >= 5              ? "pass" : "warn",
-      G4: compositionHtml.includes("<audio")            ? "pass" : "warn",
-      G5: /caption|subtitle/i.test(compositionHtml)     ? "pass" : "warn",
-      G6: /1080|1920/.test(compositionHtml)             ? "pass" : "warn",
-      G7: !/<(img|video|source)[^>]+src=["']https?:\/\/(?!cdn\.jsdelivr\.net)/.test(compositionHtml) ? "pass" : "warn",
-      G8: "pass", // budget — always passes locally
+      G1: g1Pass ? "pass" : "fail",  // blocking: no root attrs = render fails
+      G2: g2Pass ? "pass" : "warn",
+      G3: g3Pass ? "pass" : "fail",  // blocking: no clips = empty video
+      G4: g4Pass ? "pass" : "warn",  // warn: animations won't play in renderer
+      G5: g5Pass ? "pass" : "warn",  // warn: deterministic seeking may break
+      G6: g6Pass ? "pass" : "warn",
+      G7: g7Pass ? "pass" : "warn",  // warn: no audio (informational)
+      G8: g8Pass ? "pass" : "warn",  // warn: off-origin media
     };
 
     for (const [id, result] of Object.entries(gates)) {
-      emit({ type: "gate", id, pass: result === "pass", severity: result === "fail" ? "block" : "warn" });
+      emit({
+        type: "gate",
+        id,
+        pass: result === "pass",
+        severity: result === "fail" ? "block" : "warn",
+      });
     }
 
-    if (summaryJson.summary) {
-      emit({ type: "log", level: "info", msg: summaryJson.summary });
-    }
+    const composeSummary = summaryJson.summary
+      ?? `${clipCount} clip${clipCount !== 1 ? "s" : ""} · ${totalDuration.toFixed(1)}s · ${rootAttrs.width}×${rootAttrs.height}`;
 
+    emit({ type: "log", level: "info", msg: composeSummary });
     emit({ type: "done", gates });
+
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     logger.error({ turnId, err: msg }, "agent turn failed");

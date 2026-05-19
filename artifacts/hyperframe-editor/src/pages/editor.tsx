@@ -162,7 +162,7 @@ export default function EditorPage({ id }: { id: string }) {
     const p = overridePrompt ?? prompt;
     if (!p.trim()) return;
 
-    setEvents([{ type: "log", level: "info", msg: `▶ ${kind === "compose" ? "Rendering" : "Tweaking"}: ${p.slice(0, 80)}${p.length > 80 ? "…" : ""}` }]);
+    setEvents([{ type: "log", level: "info", msg: `▶ ${kind === "compose" ? "Generating" : "Tweaking"}: ${p.slice(0, 80)}${p.length > 80 ? "…" : ""}` }]);
 
     try {
       const res = await fetch("/api/gemini/agent/turn", {
@@ -278,7 +278,7 @@ export default function EditorPage({ id }: { id: string }) {
 
           <label className="block">
             <span className="block text-[10px] uppercase tracking-wider opacity-60 pb-1">
-              Prompt <span className="opacity-50 hidden sm:inline">(⌘/Ctrl+Enter to render)</span>
+              Prompt <span className="opacity-50 hidden sm:inline">(⌘/Ctrl+Enter to generate)</span>
             </span>
             <textarea
               value={prompt}
@@ -392,16 +392,23 @@ export default function EditorPage({ id }: { id: string }) {
       >
         <div className="border-b border-muted/30 px-4 py-3 flex items-center justify-between text-sm shrink-0">
           <span className="font-medium">Preview</span>
-          <div className="flex items-center gap-3 text-xs">
+          <div className="flex items-center gap-2 text-xs">
             {renderInFlight && (
-              <span className="text-accent animate-pulse hidden sm:inline">Gemini generating…</span>
+              <span className="text-accent animate-pulse hidden sm:inline">Generating…</span>
             )}
             <button
               onClick={() => setPreviewVersion((v) => v + 1)}
-              className="opacity-60 hover:opacity-100 p-1"
+              className="opacity-60 hover:opacity-100 px-2 py-1"
               title="Reload preview"
             >
               ↺ reload
+            </button>
+            <button
+              disabled={renderInFlight || !composition}
+              title={!composition ? "Generate a composition first" : "Render to MP4 (coming soon)"}
+              className="rounded border border-muted/40 bg-ink/60 px-3 py-1.5 font-medium text-[11px] uppercase tracking-wide opacity-60 disabled:opacity-30 cursor-not-allowed"
+            >
+              ⬡ Render MP4
             </button>
           </div>
         </div>
@@ -411,7 +418,7 @@ export default function EditorPage({ id }: { id: string }) {
             key={previewUrl}
             src={previewUrl}
             title="composition preview"
-            sandbox="allow-scripts"
+            sandbox="allow-scripts allow-same-origin"
             className="h-full max-h-full w-full border border-muted/20 bg-ink rounded shadow-xl"
             style={{ aspectRatio: previewAspectRatio }}
           />
