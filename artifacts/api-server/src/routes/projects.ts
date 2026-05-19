@@ -44,13 +44,20 @@ interface SourceRow {
 }
 
 const PRESETS: Record<string, { id: string; label: string; canvas: { width: number; height: number; fps: number } }> = {
-  "youtube-essay": { id: "youtube-essay", label: "YouTube Essay", canvas: { width: 1920, height: 1080, fps: 30 } },
-  "tiktok-hook": { id: "tiktok-hook", label: "TikTok Hook", canvas: { width: 1080, height: 1920, fps: 30 } },
-  "product-promo": { id: "product-promo", label: "Product Promo", canvas: { width: 1080, height: 1080, fps: 30 } },
-  "podcast-clip": { id: "podcast-clip", label: "Podcast Clip", canvas: { width: 1080, height: 1920, fps: 30 } },
+  "youtube-essay":         { id: "youtube-essay",         label: "YouTube Essay",         canvas: { width: 1920, height: 1080, fps: 30 } },
+  "tiktok-hook":           { id: "tiktok-hook",           label: "TikTok Hook",           canvas: { width: 1080, height: 1920, fps: 30 } },
+  "product-promo":         { id: "product-promo",         label: "Product Promo",         canvas: { width: 1080, height: 1080, fps: 30 } },
+  "podcast-clip":          { id: "podcast-clip",          label: "Podcast Clip",          canvas: { width: 1080, height: 1920, fps: 30 } },
   "educational-explainer": { id: "educational-explainer", label: "Educational Explainer", canvas: { width: 1920, height: 1080, fps: 30 } },
-  "devotional-reel": { id: "devotional-reel", label: "Devotional Reel", canvas: { width: 1080, height: 1920, fps: 30 } },
+  "devotional-reel":       { id: "devotional-reel",       label: "Devotional Reel",       canvas: { width: 1080, height: 1920, fps: 30 } },
 };
+
+/** Get the canvas for a project from the presets table, falling back to TikTok 9:16. */
+function projectCanvas(projectId: string) {
+  const project = ephemeralProjects.get(projectId);
+  const preset = project ? (PRESETS[project.preset] ?? PRESETS["tiktok-hook"]!) : PRESETS["tiktok-hook"]!;
+  return preset.canvas;
+}
 
 // GET /api/projects
 router.get("/projects", async (_req, res) => {
@@ -198,7 +205,8 @@ router.post("/projects/:id/upload-url", async (req, res) => {
 router.get("/projects/:id/composition", async (req, res) => {
   const { id } = req.params;
   try {
-    const { html: rawHtml, bootstrapped } = await getOrBootstrapComposition(id);
+    const canvas = projectCanvas(id);
+    const { html: rawHtml, bootstrapped } = await getOrBootstrapComposition(id, canvas);
     const html = rewriteHtmlForBrowser(rawHtml, id);
     if (bootstrapped) res.setHeader("x-hyperframe-bootstrapped", "1");
     res.setHeader("content-type", "text/html; charset=utf-8");
@@ -227,7 +235,8 @@ router.put("/projects/:id/composition", async (req, res) => {
 router.get("/projects/:id/composition.json", async (req, res) => {
   const { id } = req.params;
   try {
-    const { composition, bootstrapped } = await getOrBootstrapComposition(id);
+    const canvas = projectCanvas(id);
+    const { composition, bootstrapped } = await getOrBootstrapComposition(id, canvas);
     if (bootstrapped) res.setHeader("x-hyperframe-bootstrapped", "1");
     res.json({ composition, bootstrapped });
   } catch (e) {

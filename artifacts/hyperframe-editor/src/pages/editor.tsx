@@ -21,16 +21,40 @@ import {
 import { PRESETS } from "@/lib/presets";
 import type { Composition } from "@/types/composition";
 
+// ---------------------------------------------------------------------------
+// localStorage helpers — persist chat events per project so they survive
+// page refreshes and back-navigation.
+// ---------------------------------------------------------------------------
+function loadStoredEvents(projectId: string): AgentEvent[] {
+  try {
+    const raw = localStorage.getItem(`hf-events-${projectId}`);
+    if (!raw) return [];
+    return JSON.parse(raw) as AgentEvent[];
+  } catch {
+    return [];
+  }
+}
+
+function saveStoredEvents(projectId: string, events: AgentEvent[]) {
+  try {
+    // Keep only the last 500 events to avoid ballooning storage
+    const trimmed = events.slice(-500);
+    localStorage.setItem(`hf-events-${projectId}`, JSON.stringify(trimmed));
+  } catch { /* quota exceeded — ignore */ }
+}
+
 export default function EditorPage({ id }: { id: string }) {
   const [prompt, setPrompt] = useState(
     "Create a short punchy TikTok-style video about the power of AI in everyday life. Include bold text overlays, dynamic transitions, and upbeat energy.",
   );
   const [presetId, setPresetId] = useState("tiktok-hook");
-  const [events, setEvents] = useState<AgentEvent[]>([]);
+  const [events, setEvents] = useState<AgentEvent[]>(() => loadStoredEvents(id));
   const [activeStreamId, setActiveStreamId] = useState<string | null>(null);
   const [streamDone, setStreamDone] = useState(true);
   const [previewVersion, setPreviewVersion] = useState(0);
   const [composition, setComposition] = useState<Composition | null>(null);
+  // True when the composition is still a placeholder (no AI generation yet)
+  const [isBootstrapped, setIsBootstrapped] = useState(true);
   const [selectedClip, setSelectedClip] = useState<string | null>(null);
   const [tab, setTab] = useState<"chat" | "assets" | "history" | "props">("chat");
   const [costSnapshot] = useState<ProjectCostSnapshot>({
@@ -39,18 +63,28 @@ export default function EditorPage({ id }: { id: string }) {
     authoritative: false,
   });
   const [tweakPrompt, setTweakPrompt] = useState("");
-  // Mobile: toggle between the controls sidebar and the preview panel
   const [mobileView, setMobileView] = useState<"controls" | "preview">("controls");
 
-  // Derive aspect ratio from loaded composition canvas, then preset, then default
+  // ------------------------------------------------------------------
+  // Persist events to localStorage whenever they change
+  // ------------------------------------------------------------------
+  useEffect(() => {
+    saveStoredEvents(id, events);
+  }, [id, events]);
+
+  // ------------------------------------------------------------------
+  // Aspect ratio: use the AI-generated canvas once we have a real
+  // composition; otherwise fall back to the project's preset so the
+  // placeholder has the correct shape (16:9 for YouTube Essay, etc.)
+  // ------------------------------------------------------------------
   const previewAspectRatio = useMemo(() => {
-    if (composition?.canvas) {
+    if (composition?.canvas && !isBootstrapped) {
       return `${composition.canvas.width}/${composition.canvas.height}`;
     }
     const preset = PRESETS[presetId];
     if (preset) return `${preset.canvas.width}/${preset.canvas.height}`;
     return "9/16";
-  }, [composition, presetId]);
+  }, [composition, isBootstrapped, presetId]);
 
   const presets = useMemo(() => Object.values(PRESETS), []);
 
@@ -68,12 +102,32 @@ export default function EditorPage({ id }: { id: string }) {
   const inFlightCostUsd = useMemo(() => sumCostEvents(events), [events]);
   const runningCostUsd = costSnapshot.spentUsd + inFlightCostUsd;
 
+  // ------------------------------------------------------------------
+  // Load project details — sets the correct presetId and prompt hint
+  // ------------------------------------------------------------------
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await fetch(`/api/projects/${id}`, { cache: "no-store" });
+        if (!r.ok) return;
+        const j = (await r.json()) as { project?: { preset?: string; title?: string } };
+        if (j.project?.preset) setPresetId(j.project.preset);
+      } catch { /* ignore — use default */ }
+    })();
+  }, [id]);
+
+  // ------------------------------------------------------------------
+  // Load composition AST — also tracks bootstrapped state
+  // ------------------------------------------------------------------
   const loadComposition = useCallback(async () => {
     try {
       const r = await fetch(`/api/projects/${id}/composition.json`, { cache: "no-store" });
       if (!r.ok) return;
-      const j = (await r.json()) as { composition?: Composition };
-      if (j.composition) setComposition(j.composition);
+      const j = (await r.json()) as { composition?: Composition; bootstrapped?: boolean };
+      if (j.composition) {
+        setComposition(j.composition);
+        setIsBootstrapped(j.bootstrapped ?? false);
+      }
     } catch { /* ignore */ }
   }, [id]);
 
@@ -81,7 +135,9 @@ export default function EditorPage({ id }: { id: string }) {
     void loadComposition();
   }, [loadComposition]);
 
+  // ------------------------------------------------------------------
   // SSE stream consumer
+  // ------------------------------------------------------------------
   useEffect(() => {
     if (!activeStreamId) return;
 
@@ -99,7 +155,6 @@ export default function EditorPage({ id }: { id: string }) {
           setStreamDone(true);
           void loadComposition();
           setPreviewVersion((v) => v + 1);
-          // Auto-switch to preview on mobile when generation completes
           setMobileView("preview");
         }
         if (data.type === "error") {
@@ -162,7 +217,10 @@ export default function EditorPage({ id }: { id: string }) {
     const p = overridePrompt ?? prompt;
     if (!p.trim()) return;
 
-    setEvents([{ type: "log", level: "info", msg: `▶ ${kind === "compose" ? "Generating" : "Tweaking"}: ${p.slice(0, 80)}${p.length > 80 ? "…" : ""}` }]);
+    setEvents((prev) => [
+      ...prev,
+      { type: "log", level: "info", msg: `▶ ${kind === "compose" ? "Generating" : "Tweaking"}: ${p.slice(0, 80)}${p.length > 80 ? "…" : ""}` },
+    ]);
 
     try {
       const res = await fetch("/api/gemini/agent/turn", {
@@ -172,13 +230,13 @@ export default function EditorPage({ id }: { id: string }) {
       });
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
-        setEvents([{ type: "error", message: j.error ?? `HTTP ${res.status}` }]);
+        setEvents((prev) => [...prev, { type: "error", message: j.error ?? `HTTP ${res.status}` }]);
         return;
       }
       const j = (await res.json()) as { turnId: string; jobId: string };
       setActiveStreamId(j.turnId ?? j.jobId);
     } catch (e) {
-      setEvents([{ type: "error", message: (e as Error).message }]);
+      setEvents((prev) => [...prev, { type: "error", message: (e as Error).message }]);
     }
   }
 
@@ -194,8 +252,35 @@ export default function EditorPage({ id }: { id: string }) {
     const direction =
       prompt.trim() ||
       "Edit this full source video with strong pacing, clean captions, relevant B-roll, motion graphics, music, and a polished intro/outro.";
-    setEvents([{ type: "log", level: "info", msg: `queued source edit: ${source.storageUri}` }]);
+    setEvents((prev) => [
+      ...prev,
+      { type: "log", level: "info", msg: `queued source edit: ${source.storageUri}` },
+    ]);
     await startGeminiAgent("tweak", `Source video: ${source.storageUri}\n\n${direction}`);
+  }
+
+  // ------------------------------------------------------------------
+  // Render MP4 — show an informational message in the chat tab instead
+  // of silently doing nothing. Full rendering requires @hyperframes/engine.
+  // ------------------------------------------------------------------
+  function handleRenderMp4() {
+    setTab("chat");
+    setMobileView("controls");
+    const preset = PRESETS[presetId];
+    const dims = preset ? `${preset.canvas.width}×${preset.canvas.height}` : "canvas";
+    setEvents((prev) => [
+      ...prev,
+      {
+        type: "log",
+        level: "info",
+        msg: [
+          `⬡ MP4 export — your composition HTML is ready (${dims}).`,
+          `To render to MP4 locally, install @hyperframes/engine and run:`,
+          `  npx hyperframes render --input composition.html --output out.mp4`,
+          `Cloud rendering (one-click export) is coming soon.`,
+        ].join("\n"),
+      },
+    ]);
   }
 
   useEffect(() => {
@@ -260,7 +345,7 @@ export default function EditorPage({ id }: { id: string }) {
           </div>
         </div>
 
-        {/* Preset + Prompt + Render */}
+        {/* Preset + Prompt + Generate */}
         <div className="space-y-2 p-4 border-b border-muted/30 shrink-0">
           <label className="block">
             <span className="block text-[10px] uppercase tracking-wider opacity-60 pb-1">Preset</span>
@@ -397,16 +482,25 @@ export default function EditorPage({ id }: { id: string }) {
               <span className="text-accent animate-pulse hidden sm:inline">Generating…</span>
             )}
             <button
-              onClick={() => setPreviewVersion((v) => v + 1)}
+              onClick={() => {
+                setPreviewVersion((v) => v + 1);
+                // Re-invoke GSAP shim in the iframe if accessible
+                const iframe = document.querySelector<HTMLIFrameElement>("iframe[title='composition preview']");
+                try {
+                  // @ts-ignore
+                  iframe?.contentWindow?.__hfPreviewPlay?.();
+                } catch { /* cross-origin guard */ }
+              }}
               className="opacity-60 hover:opacity-100 px-2 py-1"
               title="Reload preview"
             >
               ↺ reload
             </button>
             <button
-              disabled={renderInFlight || !composition}
-              title={!composition ? "Generate a composition first" : "Render to MP4 (coming soon)"}
-              className="rounded border border-muted/40 bg-ink/60 px-3 py-1.5 font-medium text-[11px] uppercase tracking-wide opacity-60 disabled:opacity-30 cursor-not-allowed"
+              onClick={handleRenderMp4}
+              disabled={renderInFlight}
+              title="Export composition to MP4"
+              className="rounded border border-muted/40 bg-ink/60 px-3 py-1.5 font-medium text-[11px] uppercase tracking-wide hover:border-accent/60 hover:text-accent transition-colors disabled:opacity-30"
             >
               ⬡ Render MP4
             </button>
@@ -418,7 +512,7 @@ export default function EditorPage({ id }: { id: string }) {
             key={previewUrl}
             src={previewUrl}
             title="composition preview"
-            sandbox="allow-scripts allow-same-origin"
+            sandbox="allow-scripts"
             className="h-full max-h-full w-full border border-muted/20 bg-ink rounded shadow-xl"
             style={{ aspectRatio: previewAspectRatio }}
           />
