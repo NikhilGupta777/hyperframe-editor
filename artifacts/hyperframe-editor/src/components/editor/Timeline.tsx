@@ -33,7 +33,6 @@ export function Timeline({ composition, selectedId, onSelect, onMutate }: Props)
   }
 
   function startMove(e: React.PointerEvent, clip: Clip) {
-    if (e.button !== 0) return;
     e.stopPropagation();
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     setDrag({
@@ -44,7 +43,6 @@ export function Timeline({ composition, selectedId, onSelect, onMutate }: Props)
     });
   }
   function startResize(e: React.PointerEvent, clip: Clip, edge: "left" | "right") {
-    if (e.button !== 0) return;
     e.stopPropagation();
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     setDrag({ kind: "resize", clipId: clip.id, edge, pointerStart: e.clientX, original: clip });
@@ -94,7 +92,7 @@ export function Timeline({ composition, selectedId, onSelect, onMutate }: Props)
       <Ruler total={total} />
       <div
         ref={trackContainerRef}
-        className="space-y-1 select-none"
+        className="space-y-1.5 select-none touch-none"
         onPointerMove={onMove}
         onPointerUp={onUp}
         onPointerCancel={onUp}
@@ -148,7 +146,7 @@ function Track({
   return (
     <div
       data-track-row
-      className="relative h-9 bg-ink/60 border border-muted/20 rounded overflow-hidden"
+      className="relative h-11 bg-ink/60 border border-muted/20 rounded overflow-hidden"
     >
       {clips.map((c) => {
         const left = (c.start / total) * 100;
@@ -166,30 +164,49 @@ function Track({
             onClick={() => onSelect(sel ? null : c.id)}
             title={`${c.id} (${c.kind}${c.block ? ":" + c.block : ""})`}
           >
+            {/* Left resize handle — wider touch target */}
             <button
-              onPointerDown={(e) => onResizeStart(e, c, "left")}
-              className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize bg-accent/0 hover:bg-accent/60"
+              onPointerDown={(e) => startResizeIfNotMove(e, c, "left", onResizeStart)}
+              className="absolute left-0 top-0 bottom-0 w-4 cursor-ew-resize z-10 flex items-center justify-start"
               aria-label="resize-left"
               type="button"
-            />
+            >
+              <span className="w-1 h-full bg-accent/0 hover:bg-accent/60 transition-colors" />
+            </button>
+
+            {/* Move handle */}
             <button
               onPointerDown={(e) => onMoveStart(e, c)}
-              className="absolute inset-0 cursor-grab active:cursor-grabbing px-1.5 text-left truncate"
+              className="absolute inset-0 cursor-grab active:cursor-grabbing px-4 text-left truncate"
               type="button"
             >
               <span className="font-mono opacity-80 text-[10px]">{c.block ?? c.kind}</span>
             </button>
+
+            {/* Right resize handle — wider touch target */}
             <button
-              onPointerDown={(e) => onResizeStart(e, c, "right")}
-              className="absolute right-0 top-0 bottom-0 w-1 cursor-ew-resize bg-accent/0 hover:bg-accent/60"
+              onPointerDown={(e) => startResizeIfNotMove(e, c, "right", onResizeStart)}
+              className="absolute right-0 top-0 bottom-0 w-4 cursor-ew-resize z-10 flex items-center justify-end"
               aria-label="resize-right"
               type="button"
-            />
+            >
+              <span className="w-1 h-full bg-accent/0 hover:bg-accent/60 transition-colors" />
+            </button>
           </div>
         );
       })}
     </div>
   );
+}
+
+function startResizeIfNotMove(
+  e: React.PointerEvent,
+  clip: Clip,
+  edge: "left" | "right",
+  onResizeStart: (e: React.PointerEvent, clip: Clip, edge: "left" | "right") => void,
+) {
+  e.stopPropagation();
+  onResizeStart(e, clip, edge);
 }
 
 function groupByTrack(clips: Clip[]): Clip[][] {

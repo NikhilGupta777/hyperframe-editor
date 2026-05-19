@@ -53,7 +53,7 @@ export function AgentLog({ events }: { events: AgentEvent[] }) {
 function Row({ e }: { e: AgentEvent }): ReactNode {
   if (e.type === "step")
     return (
-      <div className="opacity-80">
+      <div className="opacity-80 break-words">
         <span className="font-mono">→</span> {e.step}{" "}
         <span className="opacity-60">({e.status})</span>
       </div>
@@ -65,7 +65,7 @@ function Row({ e }: { e: AgentEvent }): ReactNode {
         : e.level === "error"
           ? "text-red-300"
           : "opacity-70";
-    return <div className={cls}>{e.msg}</div>;
+    return <div className={`${cls} break-words`}>{e.msg}</div>;
   }
   if (e.type === "progress")
     return (
@@ -73,12 +73,15 @@ function Row({ e }: { e: AgentEvent }): ReactNode {
         <div className="flex items-center justify-between text-[11px]">
           <span>render</span>
           <span className="font-mono">
-            {e.pct}%{e.frame !== undefined && e.total !== undefined ? ` (${e.frame}/${e.total})` : ""}
+            {e.pct}%
+            {e.frame !== undefined && e.total !== undefined
+              ? ` (${e.frame}/${e.total})`
+              : ""}
           </span>
         </div>
-        <div className="h-1 rounded bg-muted/30 overflow-hidden">
+        <div className="h-1 rounded bg-muted/30 overflow-hidden mt-0.5">
           <div
-            className="h-full bg-accent"
+            className="h-full bg-accent transition-[width] duration-150"
             style={{ width: `${Math.max(0, Math.min(100, e.pct))}%` }}
           />
         </div>
@@ -92,7 +95,7 @@ function Row({ e }: { e: AgentEvent }): ReactNode {
         ? "text-amber-300"
         : "text-red-400";
     return (
-      <div className={color}>
+      <div className={`${color} break-words`}>
         {tag} {e.id} {e.fix ? `· fix: ${e.fix}` : ""}
       </div>
     );
@@ -100,7 +103,7 @@ function Row({ e }: { e: AgentEvent }): ReactNode {
   if (e.type === "done")
     return (
       <div className="text-emerald-300 font-semibold">
-        done.
+        ✓ done.
         {e.url && (
           <>
             {" "}
@@ -116,7 +119,8 @@ function Row({ e }: { e: AgentEvent }): ReactNode {
         )}
       </div>
     );
-  if (e.type === "error") return <div className="text-red-400">error: {e.message}</div>;
+  if (e.type === "error")
+    return <div className="text-red-400 break-words">error: {e.message}</div>;
   if (e.type === "tool") {
     if (e.name === "cost") {
       const out = e.output as
@@ -124,8 +128,9 @@ function Row({ e }: { e: AgentEvent }): ReactNode {
         | undefined;
       if (out) {
         return (
-          <div className="opacity-70">
-            cost · <span className="font-mono">{out.provider}</span>{" "}
+          <div className="opacity-70 break-words">
+            cost ·{" "}
+            <span className="font-mono">{out.provider}</span>{" "}
             {out.unit ? <span className="opacity-60">{out.unit}</span> : null}{" "}
             {typeof out.costUsd === "number" ? (
               <span>${out.costUsd.toFixed(6)}</span>
@@ -148,11 +153,12 @@ function Row({ e }: { e: AgentEvent }): ReactNode {
         | { provider?: string; kind?: string; src?: string; generated?: boolean }
         | undefined;
       return (
-        <div className="opacity-70">
+        <div className="opacity-70 break-words">
           asset · <span className="font-mono">{out?.kind}</span>{" "}
           <span className="opacity-60">{out?.provider}</span>{" "}
-          <span className="opacity-50">{out?.src}</span>{" "}
-          {out?.generated ? <span className="text-amber-300">(generated)</span> : null}
+          {out?.generated ? (
+            <span className="text-amber-300">(generated)</span>
+          ) : null}
         </div>
       );
     }

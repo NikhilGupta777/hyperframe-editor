@@ -42,7 +42,7 @@ export function SourceUpload({
   async function handleFile(file: File) {
     setUploading(true);
     setUploadError(null);
-    setUploadProgress("requesting upload URL…");
+    setUploadProgress("Requesting upload URL…");
     try {
       const urlRes = await fetch(`/api/projects/${projectId}/upload-url`, {
         method: "POST",
@@ -63,7 +63,7 @@ export function SourceUpload({
       };
 
       if (!url.startsWith("data:")) {
-        setUploadProgress(`uploading ${(file.size / 1e6).toFixed(1)} MB…`);
+        setUploadProgress(`Uploading ${(file.size / 1e6).toFixed(1)} MB…`);
         const putRes = await fetch(url, {
           method: "PUT",
           headers: { "content-type": contentType },
@@ -74,7 +74,7 @@ export function SourceUpload({
         }
       }
 
-      setUploadProgress("registering source…");
+      setUploadProgress("Registering source…");
       const kind = file.type.startsWith("video/")
         ? "video"
         : file.type.startsWith("audio/")
@@ -109,9 +109,12 @@ export function SourceUpload({
   return (
     <div className="space-y-2 text-xs">
       <div className="text-[10px] uppercase tracking-wider opacity-60">Source files</div>
-      <div
-        className="rounded border-2 border-dashed border-muted/30 px-3 py-4 text-center cursor-pointer hover:border-muted/60 transition-colors"
-        onClick={() => !disabled && fileRef.current?.click()}
+
+      {/* Drop zone — also serves as tap-to-browse on mobile */}
+      <button
+        type="button"
+        disabled={disabled || uploading}
+        onClick={() => fileRef.current?.click()}
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault();
@@ -119,9 +122,18 @@ export function SourceUpload({
           const file = e.dataTransfer.files[0];
           if (file) void handleFile(file);
         }}
+        className="w-full rounded border-2 border-dashed border-muted/30 px-3 py-5 text-center
+          hover:border-muted/60 active:border-accent/60 transition-colors disabled:opacity-50
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
       >
-        {uploadProgress ?? (uploading ? "uploading…" : "Drop a video/audio/image or click to browse")}
-      </div>
+        {uploadProgress ?? (uploading ? "Uploading…" : (
+          <span>
+            <span className="block text-lg mb-0.5 opacity-50">↑</span>
+            Tap to browse or drop a file
+          </span>
+        ))}
+      </button>
+
       <input
         ref={fileRef}
         type="file"
@@ -132,28 +144,31 @@ export function SourceUpload({
           if (file) void handleFile(file);
         }}
       />
+
       {uploadError && (
-        <div className="rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[11px] text-red-200">
+        <div className="rounded border border-red-500/40 bg-red-500/10 px-2 py-2 text-[11px] text-red-200 break-words">
           {uploadError}
         </div>
       )}
+
       {sources.length > 0 && (
         <ul className="space-y-1">
           {sources.map((s) => (
-            <li key={s.id} className="flex items-center justify-between rounded border border-muted/30 px-2 py-1">
-              <span>
-                <span className="font-mono opacity-70">{s.kind}</span>{" "}
-                <span className="opacity-50 truncate max-w-[140px] inline-block align-bottom">
-                  {s.storageUri.split("/").pop()}
-                </span>
+            <li
+              key={s.id}
+              className="flex items-center gap-2 rounded border border-muted/30 px-2 py-2"
+            >
+              <span className="font-mono opacity-70 shrink-0">{s.kind}</span>
+              <span className="flex-1 min-w-0 opacity-60 truncate text-[11px]">
+                {s.storageUri.split("/").pop()}
               </span>
               {s.kind === "video" && onEditSource && (
                 <button
                   disabled={disabled}
                   onClick={() => onEditSource(s)}
-                  className="text-accent text-[10px] hover:underline disabled:opacity-50"
+                  className="shrink-0 rounded bg-accent/20 border border-accent/40 text-accent text-[10px] px-2 py-1 hover:bg-accent/30 disabled:opacity-50 transition-colors"
                 >
-                  edit
+                  Edit
                 </button>
               )}
             </li>

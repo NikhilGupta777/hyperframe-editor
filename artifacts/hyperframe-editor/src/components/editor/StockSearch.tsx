@@ -38,11 +38,13 @@ export function StockSearch() {
   return (
     <div className="space-y-2 text-xs">
       <div className="text-[10px] uppercase tracking-wider opacity-60">Stock search</div>
+
+      {/* Provider + kind selects — stack on very narrow, row on wider */}
       <div className="flex gap-1">
         <select
           value={provider}
           onChange={(e) => setProvider(e.target.value as "pixabay" | "unsplash")}
-          className="rounded bg-ink/60 border border-muted/40 px-2 py-1"
+          className="flex-1 rounded bg-ink/60 border border-muted/40 px-2 py-2 text-xs"
         >
           <option value="pixabay">Pixabay</option>
           <option value="unsplash">Unsplash</option>
@@ -50,37 +52,43 @@ export function StockSearch() {
         <select
           value={kind}
           onChange={(e) => setKind(e.target.value as "image" | "video")}
-          className="rounded bg-ink/60 border border-muted/40 px-2 py-1"
+          className="flex-1 rounded bg-ink/60 border border-muted/40 px-2 py-2 text-xs"
         >
-          <option value="image">image</option>
-          <option value="video">video</option>
+          <option value="image">Image</option>
+          <option value="video">Video</option>
         </select>
       </div>
+
+      {/* Search input row */}
       <div className="flex gap-1">
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && void search()}
-          placeholder="search stock…"
-          className="flex-1 rounded bg-ink/60 border border-muted/40 px-2 py-1"
+          placeholder="Search stock…"
+          className="flex-1 min-w-0 rounded bg-ink/60 border border-muted/40 px-2 py-2"
         />
         <button
           onClick={() => void search()}
-          className="rounded bg-accent text-ink px-2 py-1 font-semibold"
+          disabled={loading || !q.trim()}
+          className="rounded bg-accent text-ink px-3 py-2 font-semibold disabled:opacity-50 shrink-0"
         >
-          go
+          {loading ? "…" : "Go"}
         </button>
       </div>
+
       {missingKey && (
-        <div className="opacity-60 italic">
-          API key not configured for {provider}. Set {provider === "pixabay" ? "PIXABAY_API_KEY" : "UNSPLASH_ACCESS_KEY"} to enable.
+        <div className="opacity-60 italic leading-snug">
+          API key not configured for {provider}. Set{" "}
+          {provider === "pixabay" ? "PIXABAY_API_KEY" : "UNSPLASH_ACCESS_KEY"} to enable.
         </div>
       )}
-      {loading && <div className="opacity-50">searching…</div>}
+
+      {/* Results grid — 2 cols so images are tap-friendly */}
       {hits.length > 0 && (
-        <div className="grid grid-cols-3 gap-1">
+        <div className="grid grid-cols-2 gap-1.5">
           {hits.map((hit) => (
-            <div key={hit.id} className="relative group">
+            <div key={hit.id} className="flex flex-col gap-0.5">
               <img
                 src={hit.previewUrl}
                 alt={`${hit.kind} from ${hit.provider}`}
@@ -91,9 +99,9 @@ export function StockSearch() {
                 href={hit.downloadUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-[10px] text-white transition-opacity rounded"
+                className="block text-center py-1 rounded bg-muted/20 hover:bg-muted/40 text-[10px] text-paper/80 transition-colors"
               >
-                open
+                Open ↗
               </a>
             </div>
           ))}

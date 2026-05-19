@@ -9,7 +9,7 @@ interface Props {
 export function GateBadges({ status }: Props) {
   const ids = Object.keys(GATE_CATALOG) as GateId[];
   return (
-    <div className="grid grid-cols-8 gap-1 text-[10px] uppercase tracking-wider">
+    <div className="flex flex-wrap gap-1 text-[10px] uppercase tracking-wider">
       {ids.map((id) => {
         const s = status?.[id] ?? "skip";
         const palette =
@@ -24,7 +24,7 @@ export function GateBadges({ status }: Props) {
           <span
             key={id}
             title={`${id}: ${GATE_CATALOG[id].name}`}
-            className={`text-center rounded border px-1 py-0.5 ${palette}`}
+            className={`rounded border px-1.5 py-0.5 ${palette}`}
           >
             {id}
           </span>

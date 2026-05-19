@@ -10,6 +10,36 @@ interface ProjectRow {
   updatedAt?: string;
 }
 
+function ProjectThumb({
+  projectId,
+  presetId,
+}: {
+  projectId: string;
+  presetId: string;
+}) {
+  const preset = PRESETS[presetId];
+  const ar = preset
+    ? `${preset.canvas.width}/${preset.canvas.height}`
+    : "16/9";
+
+  return (
+    <div
+      className="relative overflow-hidden rounded bg-black/60 shrink-0"
+      style={{ width: 88, aspectRatio: ar }}
+    >
+      <iframe
+        src={`/api/projects/${projectId}/composition`}
+        sandbox="allow-scripts"
+        title="preview"
+        className="w-full h-full"
+        style={{ pointerEvents: "none" }}
+      />
+      {/* Dim overlay so it reads as a thumbnail, not interactive */}
+      <div className="absolute inset-0 bg-black/10" />
+    </div>
+  );
+}
+
 export default function Home() {
   const [, navigate] = useLocation();
   const [projects, setProjects] = useState<ProjectRow[] | null>(null);
@@ -31,9 +61,7 @@ export default function Home() {
         if (alive) setProjects([]);
       }
     })();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, []);
 
   async function createProject() {
@@ -61,27 +89,32 @@ export default function Home() {
   }
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
-      <h1 className="font-display text-5xl tracking-tight">hyperframe-editor</h1>
-      <p className="mt-4 text-lg opacity-80">
-        AI-native HyperFrames video editor for full 5-10 minute videos, source edits, motion graphics, captions, B-roll, preview, and render.
+    <main className="mx-auto max-w-3xl px-4 sm:px-6 py-10 sm:py-16">
+      <h1 className="font-display text-4xl sm:text-5xl tracking-tight">
+        hyperframe-editor
+      </h1>
+      <p className="mt-3 sm:mt-4 text-base sm:text-lg opacity-80 leading-relaxed">
+        AI-native HyperFrames video editor. Generate full videos with Gemini,
+        edit source footage, add motion graphics, captions, B-roll, and render.
       </p>
 
-      <section className="mt-10 rounded border border-muted/40 bg-ink/40 p-4">
+      {/* ── Create project ── */}
+      <section className="mt-8 rounded border border-muted/40 bg-ink/40 p-4">
         <div className="mb-3 text-xs uppercase tracking-wider opacity-60">
           New project
         </div>
-        <div className="flex flex-col gap-2 md:flex-row">
+        <div className="flex flex-col gap-2">
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="flex-1 rounded bg-ink/60 border border-muted/40 px-3 py-2 text-sm"
+            onKeyDown={(e) => e.key === "Enter" && void createProject()}
+            className="w-full rounded bg-ink/60 border border-muted/40 px-3 py-2.5 text-sm"
             placeholder="Project title"
           />
           <select
             value={preset}
             onChange={(e) => setPreset(e.target.value)}
-            className="rounded bg-ink/60 border border-muted/40 px-3 py-2 text-sm"
+            className="w-full rounded bg-ink/60 border border-muted/40 px-3 py-2.5 text-sm"
           >
             {presetOptions.map((p) => (
               <option key={p.id} value={p.id}>
@@ -92,18 +125,19 @@ export default function Home() {
           <button
             onClick={() => void createProject()}
             disabled={creating || title.trim().length < 1}
-            className="rounded bg-accent px-4 py-2 font-semibold text-ink disabled:opacity-50"
+            className="w-full rounded bg-accent px-4 py-3 font-semibold text-ink text-sm disabled:opacity-50 transition-opacity"
           >
             {creating ? "Creating…" : "Create"}
           </button>
         </div>
         {createError && (
-          <div className="mt-3 rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[11px] text-red-200">
+          <div className="mt-3 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-[11px] text-red-200 break-words">
             {createError}
           </div>
         )}
       </section>
 
+      {/* ── Recent projects ── */}
       <section className="mt-8">
         <div className="mb-2 text-xs uppercase tracking-wider opacity-60">
           Recent projects
@@ -120,14 +154,26 @@ export default function Home() {
               <li key={p.id}>
                 <Link
                   href={`/editor/${p.id}`}
-                  className="block rounded border border-muted/30 px-3 py-2 hover:bg-muted/10"
+                  className="flex items-stretch gap-3 rounded border border-muted/30 p-3
+                    hover:bg-muted/10 active:bg-muted/15 transition-colors"
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium">{p.title}</span>
-                    <span className="text-xs opacity-60">{p.preset}</span>
+                  {/* Composition thumbnail */}
+                  <ProjectThumb projectId={p.id} presetId={p.preset} />
+
+                  {/* Project meta */}
+                  <div className="flex flex-col justify-center min-w-0 flex-1">
+                    <div className="font-medium truncate">{p.title}</div>
+                    <div className="text-xs opacity-60 mt-0.5">
+                      {PRESETS[p.preset]?.label ?? p.preset}
+                    </div>
+                    <div className="text-[10px] uppercase tracking-wider opacity-40 mt-1">
+                      {p.status}
+                    </div>
                   </div>
-                  <div className="text-[10px] uppercase tracking-wider opacity-50">
-                    {p.status}
+
+                  {/* Arrow */}
+                  <div className="flex items-center text-muted/50 shrink-0 self-center text-lg">
+                    ›
                   </div>
                 </Link>
               </li>
@@ -136,11 +182,11 @@ export default function Home() {
         )}
       </section>
 
-      <ul className="mt-12 grid gap-3 text-sm opacity-80">
+      <ul className="mt-10 sm:mt-12 grid gap-2.5 text-sm opacity-70">
         <li>• Two loops: BUILD (prompt → full video) and EDIT-SOURCE (source video → polished edit)</li>
         <li>• 8 mandatory quality gates run on every render</li>
         <li>• HyperFrames composition is the source of truth</li>
-        <li>• Frontend on Replit · workers on Oracle Free Tier (ARM64)</li>
+        <li>• Powered by Gemini 3.1 Pro</li>
       </ul>
     </main>
   );

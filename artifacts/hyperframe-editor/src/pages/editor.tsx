@@ -39,6 +39,18 @@ export default function EditorPage({ id }: { id: string }) {
     authoritative: false,
   });
   const [tweakPrompt, setTweakPrompt] = useState("");
+  // Mobile: toggle between the controls sidebar and the preview panel
+  const [mobileView, setMobileView] = useState<"controls" | "preview">("controls");
+
+  // Derive aspect ratio from loaded composition canvas, then preset, then default
+  const previewAspectRatio = useMemo(() => {
+    if (composition?.canvas) {
+      return `${composition.canvas.width}/${composition.canvas.height}`;
+    }
+    const preset = PRESETS[presetId];
+    if (preset) return `${preset.canvas.width}/${preset.canvas.height}`;
+    return "9/16";
+  }, [composition, presetId]);
 
   const presets = useMemo(() => Object.values(PRESETS), []);
 
@@ -87,6 +99,8 @@ export default function EditorPage({ id }: { id: string }) {
           setStreamDone(true);
           void loadComposition();
           setPreviewVersion((v) => v + 1);
+          // Auto-switch to preview on mobile when generation completes
+          setMobileView("preview");
         }
         if (data.type === "error") {
           closedByDone = true;
@@ -196,28 +210,58 @@ export default function EditorPage({ id }: { id: string }) {
   }, [prompt, presetId, renderInFlight]);
 
   return (
-    <main className="grid h-screen grid-cols-[400px_1fr] overflow-hidden">
+    <main className="flex flex-col h-[100dvh] md:grid md:h-screen md:grid-cols-[400px_1fr] overflow-hidden">
+
+      {/* ── Mobile-only top toggle bar ── */}
+      <div className="flex shrink-0 border-b border-muted/30 md:hidden">
+        <button
+          onClick={() => setMobileView("controls")}
+          className={`flex-1 py-3 text-sm font-medium transition-colors ${
+            mobileView === "controls" ? "bg-muted/15 text-paper" : "opacity-50"
+          }`}
+        >
+          Controls
+        </button>
+        <button
+          onClick={() => setMobileView("preview")}
+          className={`flex-1 py-3 text-sm font-medium transition-colors ${
+            mobileView === "preview" ? "bg-muted/15 text-paper" : "opacity-50"
+          }`}
+        >
+          {renderInFlight ? (
+            <span className="flex items-center justify-center gap-1.5">
+              <span className="inline-block w-2.5 h-2.5 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+              Generating…
+            </span>
+          ) : "Preview"}
+        </button>
+      </div>
+
       {/* ── Left sidebar ── */}
-      <section className="flex flex-col border-r border-muted/30 overflow-hidden">
+      <section
+        className={`flex-col border-r border-muted/30 overflow-hidden ${
+          mobileView === "controls" ? "flex flex-1" : "hidden md:flex"
+        }`}
+      >
         {/* Header */}
-        <div className="border-b border-muted/30 px-4 py-3">
+        <div className="border-b border-muted/30 px-4 py-3 shrink-0">
           <div className="flex items-start justify-between gap-3">
-            <div>
+            <div className="min-w-0">
               <div className="font-display text-lg leading-tight">hyperframe-editor</div>
-              <div className="text-[11px] opacity-50 font-mono truncate max-w-[200px]">{id}</div>
+              <div className="text-[11px] opacity-50 font-mono truncate max-w-[180px]">{id}</div>
             </div>
             <div className="rounded border border-muted/40 bg-ink/40 px-2 py-1 text-right text-[10px] leading-tight shrink-0">
               <div className="opacity-60 uppercase tracking-wider">Gemini</div>
               <div className="font-mono text-accent text-[11px]">
                 {formatUsd(runningCostUsd)}
               </div>
-              <div className="text-[9px] opacity-50">2.5 flash</div>
+              <div className="text-[9px] opacity-50">3.1 pro</div>
             </div>
           </div>
         </div>
 
         {/* Preset + Prompt + Render */}
-        <div className="space-y-2 p-4 border-b border-muted/30">
+        <div className="space-y-2 p-4 border-b border-muted/30 shrink-0">
           <label className="block">
             <span className="block text-[10px] uppercase tracking-wider opacity-60 pb-1">Preset</span>
             <select
@@ -234,7 +278,7 @@ export default function EditorPage({ id }: { id: string }) {
 
           <label className="block">
             <span className="block text-[10px] uppercase tracking-wider opacity-60 pb-1">
-              Prompt <span className="opacity-50">(⌘/Ctrl+Enter to render)</span>
+              Prompt <span className="opacity-50 hidden sm:inline">(⌘/Ctrl+Enter to render)</span>
             </span>
             <textarea
               value={prompt}
@@ -249,7 +293,7 @@ export default function EditorPage({ id }: { id: string }) {
           <button
             onClick={() => void startGeminiAgent("compose")}
             disabled={renderInFlight || prompt.trim().length < 3}
-            className="w-full rounded bg-accent text-ink font-semibold py-2.5 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2"
+            className="w-full rounded bg-accent text-ink font-semibold py-3 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2 text-sm"
           >
             {renderInFlight ? (
               <>
@@ -264,19 +308,19 @@ export default function EditorPage({ id }: { id: string }) {
           <GateBadges status={gateStatus} />
 
           {lastError && (
-            <div className="rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-[11px] text-red-200 leading-relaxed">
+            <div className="rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-[11px] text-red-200 leading-relaxed break-words">
               {lastError}
             </div>
           )}
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-muted/30 text-xs">
+        <div className="flex border-b border-muted/30 text-xs shrink-0">
           {(["chat", "assets", "history", "props"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`flex-1 py-2 transition-colors ${
+              className={`flex-1 py-2.5 transition-colors ${
                 tab === t ? "bg-muted/15 text-paper font-medium" : "opacity-60 hover:opacity-100"
               }`}
             >
@@ -293,20 +337,20 @@ export default function EditorPage({ id }: { id: string }) {
                 <AgentLog events={events} />
               </div>
               <form
-                className="border-t border-muted/30 p-2 flex gap-2"
+                className="border-t border-muted/30 p-2 flex gap-2 shrink-0"
                 onSubmit={(e) => { e.preventDefault(); void startTweak(); }}
               >
                 <input
                   value={tweakPrompt}
                   onChange={(e) => setTweakPrompt(e.target.value)}
                   placeholder="Ask Gemini to tweak the composition…"
-                  className="flex-1 rounded bg-ink/60 border border-muted/40 px-2 py-1.5 text-xs"
+                  className="flex-1 rounded bg-ink/60 border border-muted/40 px-3 py-2 text-sm min-w-0"
                   disabled={renderInFlight}
                 />
                 <button
                   type="submit"
                   disabled={renderInFlight || tweakPrompt.trim().length < 2}
-                  className="rounded bg-accent text-ink px-3 py-1 text-xs font-semibold disabled:opacity-50"
+                  className="rounded bg-accent text-ink px-4 py-2 text-sm font-semibold disabled:opacity-50 shrink-0"
                 >
                   Send
                 </button>
@@ -341,16 +385,20 @@ export default function EditorPage({ id }: { id: string }) {
       </section>
 
       {/* ── Right: preview + timeline ── */}
-      <section className="flex flex-col overflow-hidden">
-        <div className="border-b border-muted/30 px-4 py-3 flex items-center justify-between text-sm">
+      <section
+        className={`flex-col overflow-hidden ${
+          mobileView === "preview" ? "flex flex-1" : "hidden md:flex"
+        }`}
+      >
+        <div className="border-b border-muted/30 px-4 py-3 flex items-center justify-between text-sm shrink-0">
           <span className="font-medium">Preview</span>
           <div className="flex items-center gap-3 text-xs">
             {renderInFlight && (
-              <span className="text-accent animate-pulse">Gemini generating…</span>
+              <span className="text-accent animate-pulse hidden sm:inline">Gemini generating…</span>
             )}
             <button
               onClick={() => setPreviewVersion((v) => v + 1)}
-              className="opacity-60 hover:opacity-100"
+              className="opacity-60 hover:opacity-100 p-1"
               title="Reload preview"
             >
               ↺ reload
@@ -358,26 +406,31 @@ export default function EditorPage({ id }: { id: string }) {
           </div>
         </div>
 
-        <div className="flex-1 grid place-items-center bg-black/40 p-4 overflow-hidden">
+        <div className="flex-1 grid place-items-center bg-black/40 p-2 sm:p-4 overflow-hidden min-h-0">
           <iframe
             key={previewUrl}
             src={previewUrl}
             title="composition preview"
             sandbox="allow-scripts"
-            className="h-full max-h-full border border-muted/20 bg-ink rounded shadow-xl"
-            style={{ aspectRatio: presetId.includes("youtube") || presetId.includes("educational") ? "16/9" : "9/16" }}
+            className="h-full max-h-full w-full border border-muted/20 bg-ink rounded shadow-xl"
+            style={{ aspectRatio: previewAspectRatio }}
           />
         </div>
 
-        <Timeline
-          composition={composition}
-          selectedId={selectedClip}
-          onSelect={(clipId) => {
-            setSelectedClip(clipId);
-            if (clipId) setTab("props");
-          }}
-          onMutate={persistComposition}
-        />
+        <div className="shrink-0">
+          <Timeline
+            composition={composition}
+            selectedId={selectedClip}
+            onSelect={(clipId) => {
+              setSelectedClip(clipId);
+              if (clipId) {
+                setTab("props");
+                setMobileView("controls");
+              }
+            }}
+            onMutate={persistComposition}
+          />
+        </div>
       </section>
     </main>
   );
