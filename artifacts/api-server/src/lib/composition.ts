@@ -1,6 +1,11 @@
 // @ts-ignore
 import type { Composition } from "@hyperframe-editor/core";
 
+/**
+ * DEV-MODE ONLY: compositions are stored in process memory.
+ * They are intentionally ephemeral — a server restart clears them.
+ * For production persistence, replace these Maps with DB/object-storage calls.
+ */
 const ephemeralAst = new Map<string, Composition>();
 const ephemeralHtml = new Map<string, string>();
 

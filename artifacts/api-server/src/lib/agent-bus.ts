@@ -2,7 +2,7 @@
  * Shared in-memory event bus for AI agent turns.
  * Works with both Replit Gemini proxy (local) and Vertex AI (production).
  */
-import { ai, model as AI_MODEL, provider } from "./ai-client";
+import { getAiClient } from "./ai-client";
 import {
   HYPERFRAMES_SYSTEM_PROMPT,
   buildComposeBrief,
@@ -40,6 +40,9 @@ async function runAgentTurn(turnId: string, body: AgentTurnInput) {
   };
 
   try {
+    // Resolve the AI client at request time — throws a clean error if not configured
+    const { ai, model: AI_MODEL, provider } = getAiClient();
+
     emit({ type: "log", level: "info", msg: `provider: ${provider} · model: ${AI_MODEL}` });
     emit({ type: "step", step: "initializing", status: "running" });
 
