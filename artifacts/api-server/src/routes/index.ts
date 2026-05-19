@@ -5,6 +5,7 @@ import renderRouter from "./render";
 import agentRouter from "./agent";
 import stockRouter from "./stock";
 import previewRouter from "./preview";
+import geminiAgentRouter from "./gemini-agent";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(renderRouter);
 router.use(agentRouter);
 router.use(stockRouter);
 router.use(previewRouter);
+router.use(geminiAgentRouter);
 
 export default router;
