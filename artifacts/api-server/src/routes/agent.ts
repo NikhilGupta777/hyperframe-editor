@@ -27,10 +27,10 @@ router.post("/agent/turn", async (req, res) => {
     projectId: parsed.projectId,
     prompt: parsed.prompt,
     kind: agentKind,
-    presetId: parsed.presetId,
+    presetId: parsed.presetId ?? "tiktok-hook",
   });
 
-  res.json({ jobId: turnId });
+  return res.json({ jobId: turnId });
 });
 
 export default router;

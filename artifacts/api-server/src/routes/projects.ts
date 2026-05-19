@@ -64,7 +64,7 @@ router.get("/projects", async (_req, res) => {
   const projects = Array.from(ephemeralProjects.values()).filter(
     (p) => p.userId === DEMO_USER_ID,
   );
-  res.json({ projects });
+  return res.json({ projects });
 });
 
 const CreateProjectBody = z.object({
@@ -97,15 +97,16 @@ router.post("/projects", async (req, res) => {
   };
 
   ephemeralProjects.set(project.id, project);
-  res.json({ project });
+  return res.json({ project });
 });
 
 // GET /api/projects/:id
 router.get("/projects/:id", async (req, res) => {
   const { id } = req.params;
+  if (!id) return badRequest(res, "missing project id");
   const project = ephemeralProjects.get(id);
   if (!project) return notFound(res, "project");
-  res.json({ project });
+  return res.json({ project });
 });
 
 const PatchProjectBody = z.object({
@@ -117,6 +118,7 @@ const PatchProjectBody = z.object({
 // PATCH /api/projects/:id
 router.patch("/projects/:id", async (req, res) => {
   const { id } = req.params;
+  if (!id) return badRequest(res, "missing project id");
   const parsed = await readJson(req, res, PatchProjectBody);
   if (!parsed) return;
   const project = ephemeralProjects.get(id);
@@ -127,30 +129,30 @@ router.patch("/projects/:id", async (req, res) => {
     project.updatedAt = new Date().toISOString();
     ephemeralProjects.set(id, project);
   }
-  res.json({ ok: true });
+  return res.json({ ok: true });
 });
 
 // GET /api/projects/:id/cost
 router.get("/projects/:id/cost", async (req, res) => {
   const { id } = req.params;
+  if (!id) return badRequest(res, "missing project id");
   void id;
   const snap: ProjectCostSnapshot = {
     spentUsd: 0,
     budgetUsd: DEFAULT_PROJECT_BUDGET_USD,
     authoritative: false,
   };
-  res.json(snap);
+  return res.json(snap);
 });
 
 // GET /api/projects/:id/jobs
-router.get("/projects/:id/jobs", async (_req, res) => {
-  res.json({ jobs: [] });
-});
+router.get("/projects/:id/jobs", async (_req, res) => res.json({ jobs: [] }));
 
 // GET /api/projects/:id/sources
 router.get("/projects/:id/sources", async (req, res) => {
   const { id } = req.params;
-  res.json({ sources: ephemeralSources.get(id) ?? [] });
+  if (!id) return badRequest(res, "missing project id");
+  return res.json({ sources: ephemeralSources.get(id) ?? [] });
 });
 
 const RegisterSourceBody = z.object({
@@ -165,6 +167,7 @@ const RegisterSourceBody = z.object({
 // POST /api/projects/:id/sources
 router.post("/projects/:id/sources", async (req, res) => {
   const { id } = req.params;
+  if (!id) return badRequest(res, "missing project id");
   const parsed = await readJson(req, res, RegisterSourceBody);
   if (!parsed) return;
   const source: SourceRow = {
@@ -175,7 +178,7 @@ router.post("/projects/:id/sources", async (req, res) => {
   };
   const existing = ephemeralSources.get(id) ?? [];
   ephemeralSources.set(id, [source, ...existing]);
-  res.json({ source });
+  return res.json({ source });
 });
 
 const UploadUrlBody = z.object({
@@ -187,11 +190,12 @@ const UploadUrlBody = z.object({
 // POST /api/projects/:id/upload-url
 router.post("/projects/:id/upload-url", async (req, res) => {
   const { id } = req.params;
+  if (!id) return badRequest(res, "missing project id");
   const parsed = await readJson(req, res, UploadUrlBody);
   if (!parsed) return;
   const safeFilename = parsed.filename.replace(/[^a-zA-Z0-9._-]/g, "_");
   const key = `projects/${id}/sources/${Date.now()}-${safeFilename}`;
-  res.json({
+  return res.json({
     url: `data:dev,${key}`,
     key,
     contentType: parsed.contentType,
@@ -204,13 +208,14 @@ router.post("/projects/:id/upload-url", async (req, res) => {
 // GET /api/projects/:id/composition — HTML form for iframe
 router.get("/projects/:id/composition", async (req, res) => {
   const { id } = req.params;
+  if (!id) return badRequest(res, "missing project id");
   try {
     const canvas = projectCanvas(id);
     const { html: rawHtml, bootstrapped } = await getOrBootstrapComposition(id, canvas);
     const html = rewriteHtmlForBrowser(rawHtml, id);
     if (bootstrapped) res.setHeader("x-hyperframe-bootstrapped", "1");
     res.setHeader("content-type", "text/html; charset=utf-8");
-    res.send(html);
+    return res.send(html);
   } catch (e) {
     return serverError(res, e);
   }
@@ -221,11 +226,12 @@ const PutCompositionHtmlBody = z.object({ html: z.string().min(1) });
 // PUT /api/projects/:id/composition
 router.put("/projects/:id/composition", async (req, res) => {
   const { id } = req.params;
+  if (!id) return badRequest(res, "missing project id");
   const parsed = await readJson(req, res, PutCompositionHtmlBody);
   if (!parsed) return;
   try {
     await saveCompositionHtml(id, parsed.html);
-    res.json({ ok: true, persisted: "ephemeral" });
+    return res.json({ ok: true, persisted: "ephemeral" });
   } catch (e) {
     return serverError(res, e);
   }
@@ -234,11 +240,12 @@ router.put("/projects/:id/composition", async (req, res) => {
 // GET /api/projects/:id/composition.json — AST form
 router.get("/projects/:id/composition.json", async (req, res) => {
   const { id } = req.params;
+  if (!id) return badRequest(res, "missing project id");
   try {
     const canvas = projectCanvas(id);
     const { composition, bootstrapped } = await getOrBootstrapComposition(id, canvas);
     if (bootstrapped) res.setHeader("x-hyperframe-bootstrapped", "1");
-    res.json({ composition, bootstrapped });
+    return res.json({ composition, bootstrapped });
   } catch (e) {
     return serverError(res, e);
   }
@@ -251,20 +258,21 @@ const PutCompositionJsonBody = z.object({
 // PUT /api/projects/:id/composition.json
 router.put("/projects/:id/composition.json", async (req, res) => {
   const { id } = req.params;
+  if (!id) return badRequest(res, "missing project id");
   const parsed = await readJson(req, res, PutCompositionJsonBody);
   if (!parsed) return;
   try {
     // @ts-ignore
     await saveComposition(id, parsed.composition);
-    res.json({ ok: true, persisted: "ephemeral" });
+    return res.json({ ok: true, persisted: "ephemeral" });
   } catch (e) {
     return serverError(res, e);
   }
 });
 
 // GET /api/projects/:id/assets/:name — stub; real impl would stream from OCI
-router.get("/projects/:id/assets/:name", async (req, res) => {
-  res.status(404).json({ error: "asset not found (storage not configured)" });
-});
+router.get("/projects/:id/assets/:name", async (_req, res) =>
+  res.status(404).json({ error: "asset not found (storage not configured)" }),
+);
 
 export default router;

@@ -37,9 +37,9 @@ router.get("/stock/:provider", async (req, res) => {
     } else {
       return res.status(404).json({ error: `unknown provider: ${provider}` });
     }
-    res.json({ hits });
+    return res.json({ hits });
   } catch (e) {
-    res.status(500).json({ error: (e as Error).message });
+    return res.status(500).json({ error: (e as Error).message });
   }
 });
 

@@ -27,21 +27,21 @@ router.post("/render", async (req, res) => {
     projectId: parsed.projectId,
     prompt: parsed.prompt,
     kind: agentKind,
-    presetId: parsed.presetId,
+    presetId: parsed.presetId ?? "tiktok-hook",
   });
 
-  res.json({ jobId: turnId });
+  return res.json({ jobId: turnId });
 });
 
 // GET /api/render/:id/stream — redirect to gemini agent stream
-router.get("/render/:id/stream", (req, res) => {
-  res.redirect(307, `/api/gemini/agent/${req.params.id}/stream`);
-});
+router.get("/render/:id/stream", (req, res) =>
+  res.redirect(307, `/api/gemini/agent/${req.params.id}/stream`),
+);
 
 // POST /api/jobs/:id/cancel
-router.post("/jobs/:id/cancel", (_req, res) => { res.json({ ok: true }); });
+router.post("/jobs/:id/cancel", (_req, res) => res.json({ ok: true }));
 
 // GET /api/jobs/:id
-router.get("/jobs/:id", (_req, res) => { res.status(404).json({ error: "job not found" }); });
+router.get("/jobs/:id", (_req, res) => res.status(404).json({ error: "job not found" }));
 
 export default router;

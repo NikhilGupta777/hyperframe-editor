@@ -18,8 +18,13 @@ router.post("/gemini/agent/turn", async (req, res) => {
   if (!parsed) return;
 
   const turnId = `t-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  startAgentTurn(turnId, parsed);
-  res.json({ turnId, jobId: turnId });
+  startAgentTurn(turnId, {
+    projectId: parsed.projectId,
+    prompt: parsed.prompt,
+    kind: parsed.kind ?? "compose",
+    presetId: parsed.presetId ?? "tiktok-hook",
+  });
+  return res.json({ turnId, jobId: turnId });
 });
 
 // GET /api/gemini/agent/:turnId/stream — SSE
@@ -60,6 +65,7 @@ router.get("/gemini/agent/:turnId/stream", (req, res) => {
     clearInterval(poll);
     clearInterval(heartbeat);
   });
+  return undefined;
 });
 
 export default router;

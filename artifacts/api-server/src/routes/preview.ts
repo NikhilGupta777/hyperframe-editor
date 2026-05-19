@@ -54,7 +54,7 @@ router.get("/preview/runtime.js", async (_req, res) => {
   }
   res.setHeader("content-type", "application/javascript; charset=utf-8");
   res.setHeader("cache-control", "public, max-age=3600, immutable");
-  res.send(result.source);
+  return res.send(result.source);
 });
 
 export default router;
