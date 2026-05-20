@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
+import "@hyperframes/player";
 import { AgentLog, type AgentEvent } from "@/components/editor/AgentLog";
 import { GateBadges } from "@/components/editor/GateBadges";
 import { Timeline } from "@/components/editor/Timeline";
@@ -65,8 +66,7 @@ export default function EditorPage({ id }: { id: string }) {
   });
   const [tweakPrompt, setTweakPrompt] = useState("");
   const [mobileView, setMobileView] = useState<"controls" | "preview">("controls");
-  const previewContainerRef = useRef<HTMLDivElement>(null);
-  const [previewBox, setPreviewBox] = useState({ width: 320, height: 568 });
+  const playerRef = useRef<HTMLElement>(null);
 
   // ------------------------------------------------------------------
   // Persist events to localStorage whenever they change
@@ -89,35 +89,11 @@ export default function EditorPage({ id }: { id: string }) {
     return "9/16";
   }, [composition, isBootstrapped, presetId]);
 
-  const previewRatio = useMemo(() => {
-    const [w, h] = previewAspectRatio.split("/").map(Number);
-    return w && h ? w / h : 9 / 16;
-  }, [previewAspectRatio]);
-
-  useEffect(() => {
-    const el = previewContainerRef.current;
-    if (!el) return;
-    const update = () => {
-      const rect = el.getBoundingClientRect();
-      const availableWidth = Math.max(1, rect.width);
-      const availableHeight = Math.max(1, rect.height);
-      if (availableWidth / availableHeight > previewRatio) {
-        setPreviewBox({
-          width: Math.floor(availableHeight * previewRatio),
-          height: Math.floor(availableHeight),
-        });
-      } else {
-        setPreviewBox({
-          width: Math.floor(availableWidth),
-          height: Math.floor(availableWidth / previewRatio),
-        });
-      }
-    };
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [previewRatio]);
+  // Native canvas dimensions for the player's width/height hint attributes
+  const previewCanvas = useMemo(() => {
+    if (composition?.canvas && !isBootstrapped) return composition.canvas;
+    return PRESETS[presetId]?.canvas ?? { width: 1080, height: 1920, fps: 30 };
+  }, [composition, isBootstrapped, presetId]);
 
   const presets = useMemo(() => Object.values(PRESETS), []);
 
@@ -521,15 +497,7 @@ export default function EditorPage({ id }: { id: string }) {
               <span className="text-accent animate-pulse hidden sm:inline">Generating...</span>
             )}
             <button
-              onClick={() => {
-                setPreviewVersion((v) => v + 1);
-                // Re-invoke GSAP shim in the iframe if accessible
-                const iframe = document.querySelector<HTMLIFrameElement>("iframe[title='composition preview']");
-                try {
-                  // @ts-ignore
-                  iframe?.contentWindow?.__hfPreviewPlay?.();
-                } catch { /* cross-origin guard */ }
-              }}
+              onClick={() => setPreviewVersion((v) => v + 1)}
               className="opacity-60 hover:opacity-100 px-2 py-1"
               title="Reload preview"
             >
@@ -546,24 +514,27 @@ export default function EditorPage({ id }: { id: string }) {
           </div>
         </div>
 
-        <div
-          ref={previewContainerRef}
-          className="flex-1 grid place-items-center bg-black/40 p-2 sm:p-4 overflow-hidden min-h-0"
-        >
+        <div className="flex-1 grid place-items-center bg-black/40 p-2 sm:p-4 overflow-hidden min-h-0">
           <div
-            className="relative border border-muted/20 bg-ink rounded shadow-xl overflow-hidden"
+            className="border border-muted/20 rounded shadow-xl overflow-hidden"
             style={{
-              width: previewBox.width,
-              height: previewBox.height,
               aspectRatio: previewAspectRatio,
+              maxHeight: "100%",
+              maxWidth: "100%",
+              width: "auto",
+              height: "100%",
             }}
           >
-            <iframe
+            <hyperframes-player
               key={previewUrl}
+              ref={playerRef}
               src={previewUrl}
-              title="composition preview"
-              sandbox="allow-scripts allow-same-origin"
-              className="absolute inset-0 h-full w-full border-0 bg-ink"
+              width={previewCanvas.width}
+              height={previewCanvas.height}
+              autoplay
+              muted
+              controls
+              style={{ width: "100%", height: "100%", display: "block" }}
             />
           </div>
         </div>

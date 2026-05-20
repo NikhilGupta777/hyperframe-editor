@@ -9,19 +9,26 @@ import type { Composition } from "@hyperframe-editor/core";
 const ephemeralAst = new Map<string, Composition>();
 const ephemeralHtml = new Map<string, string>();
 
-// GSAP CDN — same URL referenced in official HyperFrames docs
-const GSAP_CDN_SCRIPT = `<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>`;
+// Official GSAP CDN — jsDelivr pinned to v3.12.5 (matches @hyperframes/core GSAP_CDN constant)
+const GSAP_CDN_SCRIPT = `<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>`;
 
 /**
- * Robust preview auto-play shim.
- * HyperFrames spec requires paused:true on GSAP timelines so the renderer
- * can seek frame-by-frame. In browser preview we play them manually.
+ * Official @hyperframes/core runtime CDN tag.
  *
- * Strategy:
- *  1. Attempt .seek(0).play() on all window.__timelines at 50ms and 300ms.
- *  2. After 1s, if any .clip element is still invisible (opacity < 0.1),
- *     force all clips visible as a hard fallback.
- * This covers: slow CDN loads, wrong timeline keys, missing timelines.
+ * In browser preview this URL is rewritten by rewriteHtmlForBrowser() to
+ * /api/preview/runtime.js so the local install is used.
+ * In exported HTML the public CDN URL is kept, enabling autoplay and the
+ * full HyperFrames playback contract in any browser.
+ *
+ * @hyperframes/player communicates with this runtime via postMessage for
+ * play / pause / seek control.
+ */
+const HF_RUNTIME_SCRIPT = `<script src="https://cdn.jsdelivr.net/npm/@hyperframes/core/dist/hyperframe.runtime.iife.js"></script>`;
+
+/**
+ * Fallback shim — ONLY injected when both GSAP and the official runtime are
+ * absent (e.g. legacy compositions that predate this integration).
+ * For new compositions the official runtime handles autoplay.
  */
 const AUTO_PLAY_SHIM = `<script id="__hf-preview-shim">
 (function() {
@@ -147,13 +154,23 @@ export function parseClipsFromHtml(html: string): { clipCount: number; maxEnd: n
 }
 
 function injectDepsIfMissing(html: string): string {
-  const hasGsap = /gsap|cdnjs\.cloudflare\.com\/ajax\/libs\/gsap/.test(html);
+  // Inject GSAP if not already present (supports both cdnjs and jsDelivr)
+  const hasGsap = /gsap|cdnjs\.cloudflare\.com\/ajax\/libs\/gsap|jsdelivr\.net.*gsap/.test(html);
   if (!hasGsap) {
     html = html.replace(/<\/head>/i, `${GSAP_CDN_SCRIPT}\n</head>`);
   }
-  if (!html.includes("__hf-preview-shim")) {
-    html = html.replace(/<\/body>/i, `${AUTO_PLAY_SHIM}\n</body>`);
+
+  // Inject official @hyperframes/core runtime if not already present.
+  // The runtime handles GSAP autoplay, window.__timelines, and the postMessage
+  // protocol that @hyperframes/player uses for play/pause/seek control.
+  const hasRuntime =
+    html.includes("hyperframe.runtime") ||
+    html.includes("@hyperframes/core") ||
+    html.includes("__hf-preview-shim");
+  if (!hasRuntime) {
+    html = html.replace(/<\/body>/i, `${HF_RUNTIME_SCRIPT}\n</body>`);
   }
+
   return html;
 }
 

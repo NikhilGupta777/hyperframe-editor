@@ -50,8 +50,8 @@ RULE 3 - GSAP timelines
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <!-- GSAP is required - load from CDN -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+  <!-- GSAP is required - official HyperFrames CDN (jsDelivr pinned) -->
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #000; overflow: hidden; }
