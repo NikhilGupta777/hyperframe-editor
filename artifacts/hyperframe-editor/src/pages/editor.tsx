@@ -562,7 +562,7 @@ export default function EditorPage({ id }: { id: string }) {
               key={previewUrl}
               src={previewUrl}
               title="composition preview"
-              sandbox="allow-scripts"
+              sandbox="allow-scripts allow-same-origin"
               className="absolute inset-0 h-full w-full border-0 bg-ink"
             />
           </div>

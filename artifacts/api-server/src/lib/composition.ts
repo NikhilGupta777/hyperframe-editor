@@ -78,18 +78,19 @@ const AUTO_PLAY_SHIM = `<script id="__hf-preview-shim">
     setTimeout(playAllTimelines, 50);
     // Second try — in case GSAP CDN was slow
     setTimeout(playAllTimelines, 300);
-    // Final safety net — force clips visible if still invisible after 1s
+    // Final safety net — only force clips visible when NO timelines are registered.
+    // If timelines exist, GSAP is controlling visibility; clips mid-animation are
+    // intentionally invisible (e.g. data-start=5s at t=1s). Only override when
+    // GSAP never loaded / never registered any timelines at all.
     setTimeout(function() {
       var clips = document.querySelectorAll('.clip');
       if (clips.length === 0) return;
-      var anyInvisible = Array.from(clips).some(function(el) {
-        return parseFloat(window.getComputedStyle(el).opacity) < 0.05;
-      });
-      if (anyInvisible) {
-        playAllTimelines(); // one last try
-        setTimeout(forceClipsVisible, 100); // then force
-      }
-    }, 1000);
+      var tls = window.__timelines;
+      var hasTimelines = tls && Object.keys(tls).length > 0;
+      if (hasTimelines) return; // GSAP is in control — trust it
+      // No timelines at all: GSAP failed to load or compose; force clips visible
+      forceClipsVisible();
+    }, 1200);
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);

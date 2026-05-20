@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <style>
+    body { margin:0; background:#0b0f17; color:#f5f7fb;
+           font-family:system-ui,sans-serif;
+           width:100vw; height:100vh; overflow:hidden; }
+    #root { width:1080px; height:1920px; position:relative; overflow:hidden;
+            display:flex; align-items:center; justify-content:center; flex-direction:column; gap:0.5rem; }
+    .hint { font-size:1.1rem; font-weight:700; }
+    .sub  { font-size:0.8rem; opacity:0.5; }
+  </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+</head>
+<body>
+  <div id="root"
+    data-composition-id="d2af340d-a0ab-4673-a077-529dc3963fe3"
+    data-start="0"
+    data-width="1080"
+    data-height="1920"
+    data-duration="0">
+    <div class="hint">No composition yet</div>
+    <div class="sub">1080x1920 - Click Generate to create one</div>
+  </div>
+<script id="__hf-preview-shim">
+(function() {
+  function fitRootToViewport() {
+    var root = document.querySelector('[data-composition-id]');
+    if (!root) return;
+    var w = Number(root.getAttribute('data-width')) || root.offsetWidth || 1080;
+    var h = Number(root.getAttribute('data-height')) || root.offsetHeight || 1920;
+    var scale = Math.min(window.innerWidth / w, window.innerHeight / h);
+    document.documentElement.style.margin = '0';
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.margin = '0';
+    document.body.style.width = '100vw';
+    document.body.style.height = '100vh';
+    document.body.style.overflow = 'hidden';
+    document.body.style.background = document.body.style.background || '#000';
+    root.style.width = w + 'px';
+    root.style.height = h + 'px';
+    root.style.position = 'absolute';
+    root.style.left = '50%';
+    root.style.top = '50%';
+    root.style.transformOrigin = 'center center';
+    if (!root.dataset.hfOriginalTransform) {
+      root.dataset.hfOriginalTransform = root.style.transform || '';
+    }
+    var originalTransform = root.dataset.hfOriginalTransform;
+    root.style.transform = 'translate(-50%, -50%) scale(' + scale + ')' +
+      (originalTransform ? ' ' + originalTransform : '');
+  }
+  function playAllTimelines() {
+    var tls = window.__timelines;
+    var played = 0;
+    if (tls) {
+      Object.values(tls).forEach(function(tl) {
+        try { tl.seek(0); tl.play(); played++; } catch(e) {}
+      });
+    }
+    return played;
+  }
+  // Hard fallback: if GSAP animations aren't running, make clips visible directly
+  function forceClipsVisible() {
+    document.querySelectorAll('.clip').forEach(function(el) {
+      var s = el.style;
+      s.opacity = '1';
+      s.visibility = 'visible';
+      s.transform = '';
+      s.clipPath = '';
+    });
+  }
+  function init() {
+    fitRootToViewport();
+    window.addEventListener('resize', fitRootToViewport);
+    // First try — timelines may already be set up
+    setTimeout(playAllTimelines, 50);
+    // Second try — in case GSAP CDN was slow
+    setTimeout(playAllTimelines, 300);
+    // Final safety net — force clips visible if still invisible after 1s
+    setTimeout(function() {
+      var clips = document.querySelectorAll('.clip');
+      if (clips.length === 0) return;
+      var anyInvisible = Array.from(clips).some(function(el) {
+        return parseFloat(window.getComputedStyle(el).opacity) < 0.05;
+      });
+      if (anyInvisible) {
+        playAllTimelines(); // one last try
+        setTimeout(forceClipsVisible, 100); // then force
+      }
+    }, 1000);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+  // Allow the reload button to replay
+  window.__hfPreviewPlay = function() {
+    playAllTimelines();
+  };
+})();
+</script>
+<script src="https://replit-cdn.com/replit-pill/replit-pill.global.js" data-repl-id="51fafb00-abf4-4c01-bb80-b799d3154c3d"></script></body>
+</html>
